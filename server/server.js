@@ -1,6 +1,6 @@
-// server.js
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const connectDB = require('./config/db');
 const userRoutes = require('./routes/userRoutes');
 const committeeRoutes = require('./routes/committeeRoutes');
@@ -20,12 +20,20 @@ connectDB();
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// API Routes
 app.use('/api/users', userRoutes);
 app.use('/api/committees', committeeRoutes);
 app.use('/api/contributions', contributionRoutes);
 app.use('/api/dashboards', dashboardRoutes);
 app.use('/api/draws', drawRoutes);
+
+// Serve React Frontend
+app.use(express.static(path.join(__dirname, 'client/build')));
+
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+});
+
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
