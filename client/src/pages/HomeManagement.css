@@ -1,0 +1,114 @@
+/* src/pages/HomeManagement.css */
+
+.home-management {
+    padding: 20px;
+    background-color: #f8fafc;
+    color: #333;
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+}
+
+.page-title {
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.actions-section {
+    text-align: center;
+    margin: 20px 0;
+}
+
+.draw-button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 12px 24px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+}
+
+.draw-button:hover {
+    background-color: #0056b3;
+    transform: scale(1.05);
+}
+
+.selected-user-card {
+    background-color: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    margin: 20px auto;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    max-width: 400px;
+    text-align: center;
+}
+
+.selected-user-name {
+    font-size: 18px;
+    font-weight: bold;
+    color: #007bff;
+}
+
+.draw-records-section {
+    margin: 20px 0;
+}
+
+.section-title {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 15px;
+}
+
+.draw-records-list {
+    list-style-type: none;
+    padding: 0;
+}
+
+.draw-record-item {
+    background-color: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 10px 15px;
+    margin: 8px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.3s, box-shadow 0.2s;
+}
+
+.draw-record-item:hover {
+    background-color: #f1f5f9;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.record-text {
+    font-size: 16px;
+    flex: 1;
+    margin-right: 15px;
+}
+
+.delete-button {
+    background-color: #e3342f;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 12px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+}
+
+.delete-button:hover {
+    background-color: #cc1f1a;
+    transform: scale(1.05);
+}
+
+.no-records {
+    text-align: center;
+    font-style: italic;
+    color: #555;
+}
