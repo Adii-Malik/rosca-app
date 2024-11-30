@@ -6,7 +6,7 @@ const User = require('../models/User'); // Assuming you have a User model
 exports.getDashbaord = async (req, res) => {
     try {
         // Fetch all committees that are in progress
-        const committees = await Committee.find();
+        const committees = await Committee.find().populate('participants.user', 'name');
 
         // Get current month
         const currentMonth = new Date().getMonth();
@@ -40,15 +40,34 @@ exports.getDashbaord = async (req, res) => {
 
         // Create a structure to hold committees with their contributors and non-contributors
         const committeesWithContributors = committeesWithMonthsRemaining.map(committee => {
+            const totalContributionLimit = committee.participants.reduce((total, participant) => {
+                return total + (participant.contributionLimit || 1);
+            }, 0);
+
+            // Enhance participants with contribution info
+            const enhancedParticipants = committee.participants.map((participant) => {
+                const userContributionLimit = participant.contributionLimit || 1;
+                const calculatedAmount = totalContributionLimit > 0
+                    ? (committee.totalPooledAmount * userContributionLimit) / totalContributionLimit
+                    : 0;
+
+                return {
+                    ...participant,
+                    contributionAmount: calculatedAmount,
+                };
+            });
             // Get contributions related to the current committee
             const committeeContributions = contributions.filter(contribution => contribution.committeeId.toString() === committee._id.toString());
 
             // Get contributed user IDs
             const contributedUserIds = committeeContributions.map(contribution => contribution.userId.toString());
 
-            // Get contributed and non-contributed users
-            const contributedUsers = contributedUserIds.map(id => userMap[id]).filter(Boolean);
-            const nonContributedUsers = users.filter(user => !contributedUserIds.includes(user._id.toString()));
+            // Map enhanced participants to contributors and non-contributors
+            const contributedUsers = enhancedParticipants
+                .filter((participant) => contributedUserIds.includes(participant.user._id.toString()));
+
+            const nonContributedUsers = enhancedParticipants
+                .filter((participant) => !contributedUserIds.includes(participant.user._id.toString()));
 
             return {
                 ...committee,
