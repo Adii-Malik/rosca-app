@@ -116,15 +116,24 @@ const ContributionForm = ({ onContributionAdded, editingContribution }) => {
             setDate(new Date().toISOString().split('T')[0]);
             setSelectedCommittee(null);
             setError(''); // Clear any errors
-        } catch (error) {
-            console.error("Error submitting contribution:", error);
+        } catch (err) {
+            // Check for specific error messages from the backend
+            if (err.response && err.response.status === 400) {
+                setError(err.response.data.message || "An error occurred while adding the contribution.");
+            } else {
+                console.error("Error submitting contribution:", err);
+                setError("An unexpected error occurred. Please try again later.");
+            }
         }
     };
 
     return (
         <form onSubmit={handleSubmit} className="form-container">
-            {error && <div className="error-message">{error}</div>} {/* Display error message if any */}
-            <div className="form-group">
+            {error && (
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-5">
+                    {error}
+                </div>
+            )}            <div className="form-group">
                 <label>Amount</label>
                 <input
                     type="number"
