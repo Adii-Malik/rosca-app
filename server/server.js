@@ -7,6 +7,7 @@ const committeeRoutes = require('./routes/committeeRoutes');
 const contributionRoutes = require('./routes/contributionRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const drawRoutes = require('./routes/drawRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 require('dotenv').config();
 
@@ -26,6 +27,7 @@ app.use('/api/committees', committeeRoutes);
 app.use('/api/contributions', contributionRoutes);
 app.use('/api/dashboards', dashboardRoutes);
 app.use('/api/draws', drawRoutes);
+app.use('/api/auth', authRoutes);
 
 // Serve React Frontend
 app.use(express.static(path.join(__dirname, 'client/build')));
