@@ -1,24 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authenticateUser } from '../services/api';
+import { AuthContext } from '../context/AuthContext';
 
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const navigate = useNavigate();
+    const { login } = useContext(AuthContext);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Basic authentication
         const encodedCredentials = btoa(`${username}:${password}`);
         try {
             const response = await authenticateUser(encodedCredentials);
-            if (response.status === 200) { // Check for a successful status code
-                // If login is successful, store the credentials or token
-                sessionStorage.setItem('auth', encodedCredentials);
-                navigate('/'); // Redirect to home or dashboard
+            if (response.status === 200) {
+                login(encodedCredentials); // Update global auth state
+                navigate('/'); // Redirect to home/dashboard
             } else {
                 setError('Invalid credentials');
             }
