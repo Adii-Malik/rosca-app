@@ -148,3 +148,13 @@ export const deleteDraw = async (drawId) => {
     const response = await axiosInstance.delete(`/draws/${drawId}`);
     return response.data;
 };
+
+// Authenticate function
+export const authenticateUser = async (creds) => {
+    const response = await axiosInstance.get('/auth/authenticate', {
+        headers: {
+            'Authorization': `Basic ${creds}`,
+        },
+    });
+    return response;
+};
