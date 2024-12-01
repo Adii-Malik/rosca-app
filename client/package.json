@@ -9,6 +9,7 @@
     "axios": "^1.7.7",
     "body-parser": "^1.20.3",
     "cors": "^2.8.5",
+    "fireworks-js": "^2.10.8",
     "flowbite": "^2.5.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

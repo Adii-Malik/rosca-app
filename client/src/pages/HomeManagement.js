@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { fetchDashboard, fetchDraws, createDraw, deleteDraw } from '../services/api';
 import Dashboard from '../components/Dashboard';
-import './HomeManagement.css';
+import DrawUserWithFireworks from '../components/DrawUserWithFireworks';
 
 const HomeManagement = () => {
     const [dashboardData, setData] = useState({});
     const [loading, setLoading] = useState(true);
     const [drawRecords, setDrawRecords] = useState([]);
+    const [isDrawing, setIsDrawing] = useState(false);
+    const [drawnUser, setDrawnUser] = useState(null);
 
     const fetchData = async () => {
         try {
@@ -57,15 +59,22 @@ const HomeManagement = () => {
     };
 
     const handleDrawUser = async (committeeId) => {
+        setIsDrawing(true);
+
+        // Simulate drawing process (e.g., delay for animation)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
         const committeeData = dashboardData.committees.find(committee => committee._id === committeeId);
         if (!committeeData) {
             alert('Committee not found!');
+            setIsDrawing(false);
             return;
         }
 
         // Check if there are any contributed users
         if (committeeData.contributedUsers.length === 0) {
             alert('No users have contributed this month!');
+            setIsDrawing(false);
             return;
         }
 
@@ -81,6 +90,7 @@ const HomeManagement = () => {
         // Check if the user has already drawn this month
         if (drawsThisMonth.length > 0) {
             alert('A draw has already been made for this committee this month!');
+            setIsDrawing(false);
             return;
         }
 
@@ -95,8 +105,11 @@ const HomeManagement = () => {
 
             // Call the API to create a new draw record
             await createDraw(newDrawRecord);
+            setDrawnUser(drawnUser);
+
             fetchDrawRecords(); // Refresh draw records after creating a new one
         }
+        setIsDrawing(false);
     };
 
     const handleDeleteDraw = async (drawId) => {
@@ -119,12 +132,16 @@ const HomeManagement = () => {
     }
 
     return (
-        <Dashboard
-            committees={dashboardData.committees}
-            onDrawUser={handleDrawUser}
-            drawRecords={drawRecords}
-            onDrawReceordDelete={handleDeleteDraw}
-        />
+        <div>
+            <DrawUserWithFireworks drawnUser={drawnUser} />
+            <Dashboard
+                committees={dashboardData.committees}
+                onDrawUser={handleDrawUser}
+                drawRecords={drawRecords}
+                onDrawReceordDelete={handleDeleteDraw}
+                isDrawing={isDrawing}
+            />
+        </div>
     );
 };
 

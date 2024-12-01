@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from '../context/AuthContext';
 
-const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete }) => {
+const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete, isDrawing }) => {
     const { isAuthenticated } = useContext(AuthContext);
 
     const calculateCountdown = (withdrawDay) => {
@@ -145,9 +145,10 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete })
                                     {isAuthenticated && (
                                         <button
                                             onClick={() => onDrawUser(committee._id)}
+                                            disabled={isDrawing}
                                             className="w-full mt-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition"
                                         >
-                                            Draw User
+                                            {isDrawing ? 'Drawing...' : 'Draw User'}
                                         </button>
                                     )}
 
