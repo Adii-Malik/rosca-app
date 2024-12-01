@@ -33,6 +33,29 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete })
         }))
     );
 
+    function calculateProgress(startDate, endDate) {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const now = new Date();
+
+        // Calculate total duration in days
+        const totalDuration = Math.floor((end - start) / (1000 * 60 * 60 * 24)); // Total days
+
+        // Calculate current progress in days
+        const currentProgress = Math.floor((now - start) / (1000 * 60 * 60 * 24)); // Days from start to current date
+
+        // Ensure currentProgress does not go below 0
+        if (currentProgress < 0) {
+            return 0; // Not started
+        }
+
+        // Calculate progress percentage
+        const progressPercentage = (currentProgress / totalDuration) * 100;
+
+        // Ensure progress does not exceed 100%
+        return Math.min(progressPercentage, 100);
+    }
+
     useEffect(() => {
         const timerInterval = setInterval(() => {
             setTimers((prevTimers) =>
@@ -51,7 +74,7 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete })
         <div className="p-8 bg-gray-100 min-h-screen">
             {/* Header Section */}
             <header className="text-center mb-8">
-                <h1 className="text-3xl font-bold text-gray-800">Welcome to ROSCA Dashboard</h1>
+                <h1 className="text-3xl font-bold text-gray-800">Welcome to Committees Dashboard</h1>
                 <div className="flex justify-center gap-8 mt-4">
                     <div className="bg-blue-500 text-white p-4 rounded-lg text-center">
                         <strong>{committees.length}</strong>
@@ -79,26 +102,26 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete })
                                 {/* Left Section */}
                                 <div className="bg-white p-6 rounded-lg shadow-md">
                                     {/* Committee Details */}
-                                    <div className="flex justify-between items-center mb-4">
-                                        <h3 className="text-xl font-semibold">{committee.name}</h3>
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h3 className="text-xl font-semibold text-gray-800">{committee.name}</h3>
                                         <span className="text-sm text-gray-600">{new Date(committee.startDate).toLocaleDateString()} - {new Date(committee.endDate).toLocaleDateString()}</span>
                                     </div>
 
                                     {/* Progress Bar */}
-                                    <div className="mb-4">
+                                    <div className="mb-6">
                                         <div className="bg-gray-200 h-2 rounded-full">
                                             <div
                                                 className="bg-blue-500 h-2 rounded-full"
                                                 style={{
-                                                    width: `${((committee.totalMonths - committee.monthsRemaining) / committee.totalMonths) * 100}%`
+                                                    width: `${calculateProgress(committee.startDate, committee.endDate)}%`
                                                 }}
                                             ></div>
                                         </div>
                                     </div>
 
                                     {/* Timer Widget */}
-                                    <div className="bg-gray-100 p-4 rounded-lg mb-4">
-                                        <h4 className="text-lg font-medium text-gray-700 mb-2">
+                                    <div className="bg-gray-100 p-4 rounded-lg mb-6">
+                                        <h4 className="text-lg font-medium text-gray-700 mb-4">
                                             Time Until Next Withdrawal
                                         </h4>
                                         {timer ? (
@@ -109,50 +132,57 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete })
                                                 <span>{timer.seconds}s</span>
                                             </div>
                                         ) : (
-                                            <p>Loading...</p>
+                                            <p className="text-gray-600">Loading...</p>
                                         )}
                                     </div>
 
-                                    <div className="text-sm text-gray-700">
+                                    <div className="text-sm text-gray-700 mb-4">
                                         <div><strong>Total Amount:</strong> Rs {committee.totalPooledAmount}</div>
                                         <div><strong>Remaining Months:</strong> {committee.monthsRemaining}</div>
                                     </div>
 
                                     {/* Draw User Button */}
-                                    {isAuthenticated &&
-
+                                    {isAuthenticated && (
                                         <button
                                             onClick={() => onDrawUser(committee._id)}
                                             className="w-full mt-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition"
                                         >
                                             Draw User
                                         </button>
-                                    }
+                                    )}
 
                                     {/* Drawn Users History */}
-                                    <div className="mt-6">
-                                        <h4 className="font-semibold text-lg">Drawn Users History</h4>
-                                        <ul className="mt-2">
+                                    <div className="mt-8">
+                                        <h4 className="font-semibold text-lg text-gray-800 mb-4">Drawn Users History</h4>
+                                        <div className="space-y-4">
                                             {committeeDrawRecords.length > 0 ? (
                                                 committeeDrawRecords.map(record => (
-                                                    <li key={record._id} className="flex justify-between items-center py-2">
-                                                        <span>
-                                                            <strong>{record.userId.name}</strong> was drawn on {new Date(record.date).toLocaleDateString()}
-                                                        </span>
-                                                        {isAuthenticated &&
+                                                    <div key={record._id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                                                        <div className="flex justify-between items-center">
+                                                            <div>
+                                                                <strong>{record.userId ? record.userId.name : 'Unknown User'}</strong>
+                                                                <div className="text-sm text-gray-600">
+                                                                    Drawn on {new Date(record.date).toLocaleDateString()}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-gray-800">
+                                                                <strong>Rs {committee.totalPooledAmount}</strong>
+                                                            </div>
+                                                        </div>
+                                                        {isAuthenticated && (
                                                             <button
                                                                 onClick={() => onDrawReceordDelete(record._id)}
-                                                                className="text-red-500 hover:text-red-700"
+                                                                className="mt-2 text-red-500 hover:text-red-700"
                                                             >
                                                                 Delete
                                                             </button>
-                                                        }
-                                                    </li>
+                                                        )}
+                                                    </div>
                                                 ))
                                             ) : (
-                                                <p>No users drawn yet.</p>
+                                                <p className="text-gray-600">No users drawn yet.</p>
                                             )}
-                                        </ul>
+                                        </div>
                                     </div>
                                 </div>
 

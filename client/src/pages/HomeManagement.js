@@ -7,7 +7,6 @@ const HomeManagement = () => {
     const [dashboardData, setData] = useState({});
     const [loading, setLoading] = useState(true);
     const [drawRecords, setDrawRecords] = useState([]);
-    const [selectedUser, setSelectedUser] = useState(null);
 
     const fetchData = async () => {
         try {
@@ -29,6 +28,34 @@ const HomeManagement = () => {
         }
     };
 
+    // Helper function to check if a user has already drawn and is eligible to draw again
+    const isUserEligibleToDraw = (user, committeeId, drawRecords) => {
+        // Get how many draws the user has made for this committee
+        const userDrawsForCommittee = drawRecords.filter(record =>
+            record.userId._id === user.user._id && record.committeeId.toString() === committeeId.toString()
+        );
+
+        // Check if the user has reached their contribution limit
+        return userDrawsForCommittee.length < user.contributionLimit;
+    };
+
+
+    // Function to randomly select a user, ensuring they haven't already drawn
+    const selectRandomEligibleUser = (committeeData, drawRecords, committeeId) => {
+        const availableUsers = committeeData.participants.filter(user =>
+            isUserEligibleToDraw(user, committeeId, drawRecords)
+        );
+
+        if (availableUsers.length === 0) {
+            alert('All users have already received their draw amount!');
+            return null; // No eligible users remaining
+        }
+
+        // Randomly select an eligible user
+        const randomIndex = Math.floor(Math.random() * availableUsers.length);
+        return availableUsers[randomIndex]; // Return the selected eligible user
+    };
+
     const handleDrawUser = async (committeeId) => {
         const committeeData = dashboardData.committees.find(committee => committee._id === committeeId);
         if (!committeeData) {
@@ -39,36 +66,6 @@ const HomeManagement = () => {
         // Check if there are any contributed users
         if (committeeData.contributedUsers.length === 0) {
             alert('No users have contributed this month!');
-            return;
-        }
-
-        // Get already drawn users for the selected committee
-        const alreadyDrawnUsers = drawRecords.filter(record => record.committeeId === committeeId);
-
-        // Get available users who have contributed but haven't been drawn yet
-        const availableUsers = committeeData.contributedUsers.filter(user =>
-            !alreadyDrawnUsers.some(record => record.userId === user._id)
-        );
-
-        // Check if there are available users to draw
-        if (availableUsers.length === 0) {
-            alert('All users have already been drawn for this committee!');
-            return;
-        }
-
-        // Randomly select a user from available users
-        const randomIndex = Math.floor(Math.random() * availableUsers.length);
-        const drawnUser = availableUsers[randomIndex];
-
-        // Check how many draws the drawn user has made in total for this committee
-        const userDrawsForCommittee = drawRecords.filter(record =>
-            record.userId._id === drawnUser._id && record.committeeId === committeeId
-        );
-
-        // Check if the user has reached their contribution limit
-        const participant = committeeData.participants.find(p => p._id === drawnUser._id);
-        if (participant && userDrawsForCommittee.length >= participant.contributionLimit) {
-            alert(`User  ${drawnUser.name} has reached their draw limit for this committee!`);
             return;
         }
 
@@ -87,16 +84,19 @@ const HomeManagement = () => {
             return;
         }
 
-        // Create a new draw record
-        const newDrawRecord = {
-            userId: drawnUser._id,
-            committeeId: committeeId,
-            date: new Date().toISOString(),
-        };
+        const drawnUser = selectRandomEligibleUser(committeeData, drawRecords, committeeId);
+        if (drawnUser) {
+            // Create a new draw record
+            const newDrawRecord = {
+                userId: drawnUser.user._id,
+                committeeId: committeeId,
+                date: new Date().toISOString(),
+            };
 
-        // Call the API to create a new draw record
-        await createDraw(newDrawRecord);
-        fetchDrawRecords(); // Refresh draw records after creating a new one
+            // Call the API to create a new draw record
+            await createDraw(newDrawRecord);
+            fetchDrawRecords(); // Refresh draw records after creating a new one
+        }
     };
 
     const handleDeleteDraw = async (drawId) => {

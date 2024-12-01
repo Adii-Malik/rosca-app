@@ -10,7 +10,7 @@ const Navbar = () => {
             <div className="container mx-auto flex items-center justify-between">
                 {/* Left Side - Branding */}
                 <div className="text-white text-lg font-bold">
-                    <Link to="/" className="hover:text-gray-200">MyApp</Link>
+                    <Link to="/" className="hover:text-gray-200">Committee App</Link>
                 </div>
 
                 {/* Right Side - Links */}

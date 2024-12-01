@@ -1,7 +1,7 @@
 // controllers/dashboardController.js
-const Committee = require('../models/Committee'); // Assuming you have a Committee model
-const Contribution = require('../models/Contribution'); // Assuming you have a Contribution model
-const User = require('../models/User'); // Assuming you have a User model
+const Committee = require('../models/Committee');
+const Contribution = require('../models/Contribution');
+const DrawRecord = require('../models/DrawRecord');
 
 exports.getDashbaord = async (req, res) => {
     try {
@@ -29,14 +29,8 @@ exports.getDashbaord = async (req, res) => {
             }
         });
 
-        // Get all users
-        const users = await User.find(); // Assuming you have a User model
-
-        // Create a map of user IDs to user objects for easy lookup
-        const userMap = users.reduce((map, user) => {
-            map[user._id.toString()] = user;
-            return map;
-        }, {});
+        // Fetch draw records for all committees
+        const drawRecords = await DrawRecord.find().populate('userId', 'name');
 
         // Create a structure to hold committees with their contributors and non-contributors
         const committeesWithContributors = committeesWithMonthsRemaining.map(committee => {
@@ -69,10 +63,16 @@ exports.getDashbaord = async (req, res) => {
             const nonContributedUsers = enhancedParticipants
                 .filter((participant) => !contributedUserIds.includes(participant.user._id.toString()));
 
+            // Get draw records related to the current committee
+            const committeeDrawRecords = drawRecords.filter(
+                (draw) => draw.committeeId.toString() === committee._id.toString()
+            );
+
             return {
                 ...committee,
                 contributedUsers,
                 nonContributedUsers,
+                drawRecords: committeeDrawRecords,
             };
         });
 
