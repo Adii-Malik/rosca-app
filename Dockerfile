@@ -9,6 +9,7 @@ RUN npm install && npm run build
 # Stage 2: Setup backend with built frontend
 FROM node:18
 WORKDIR /app
+ENV TZ=Asia/Karachi
 COPY server ./server
 WORKDIR /app/server
 COPY --from=build /app/client/build ./client/build

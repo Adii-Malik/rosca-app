@@ -6,10 +6,19 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete })
 
     const calculateCountdown = (withdrawDay) => {
         const now = new Date();
-        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, withdrawDay);
-        const timeDiff = nextMonth - now;
-        if (timeDiff < 0) return { days: 0, hours: 0, minutes: 0, seconds: 0 }; // If time has passed
+        const currentMonthWithdrawDate = new Date(now.getFullYear(), now.getMonth(), withdrawDay);
+        const nextMonthWithdrawDate = new Date(now.getFullYear(), now.getMonth() + 1, withdrawDay);
 
+        let targetDate;
+        if (now < currentMonthWithdrawDate) {
+            // If the withdrawal date for the current month is still in the future
+            targetDate = currentMonthWithdrawDate;
+        } else {
+            // Otherwise, use the withdrawal date for the next month
+            targetDate = nextMonthWithdrawDate;
+        }
+
+        const timeDiff = targetDate - now;
         const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
         const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
         const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
