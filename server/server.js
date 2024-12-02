@@ -46,9 +46,9 @@ const server = app.listen(PORT, () => {
 // Initialize socket.io
 const io = socketio(server, {
     cors: {
-        origin: 'http://localhost:3000', // Allow your frontend's origin
-        methods: ['GET', 'POST'],       // Allowed HTTP methods
-        credentials: true,              // Allow credentials (if needed)
+        origin: '*', // Allow your frontend's origin
+        methods: ['GET', 'POST'],     // Allowed HTTP methods
+        credentials: true,       // Allow credentials (if needed)
     },
 })
 
@@ -100,9 +100,9 @@ const startDrawProcess = async (data) => {
 
         // Simulate the draw process (e.g., delay for animation)
         setTimeout(() => {
-            io.emit('drawCompleted', drawData); // Notify all clients of the draw completion
-            drawData = null; // Reset draw data after the process
-        }, 5000); // Simulate 5 seconds for the draw process
+            io.emit('drawCompleted', drawData);
+            drawData = null;
+        }, 30000);
     } catch (error) {
         console.error('Error during draw process:', error);
         io.emit('drawCompleted', { message: 'An error occurred during the draw!' });

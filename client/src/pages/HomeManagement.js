@@ -82,7 +82,7 @@ const HomeManagement = () => {
         fetchData();
         fetchDrawRecords();
 
-        socket.current = io("http://localhost:8080"); // Replace with your server URL
+        socket.current = io(process.env.REACT_APP_URL || 'https://rosca-app-8wmr3q.fly.dev'); // Replace with your server URL
         socket.current.on("drawStarted", (data) => {
             setIsDrawing(true); // Indicate drawing in progress
             setDrawnUser(null); // Reset drawn user display

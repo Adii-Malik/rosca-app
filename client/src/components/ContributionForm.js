@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchUsers, fetchCommittees } from '../services/api';
+import { fetchCommittees } from '../services/api';
 
 const ContributionForm = ({ onContributionAdded, editingContribution }) => {
     const [amount, setAmount] = useState('');
@@ -14,9 +14,7 @@ const ContributionForm = ({ onContributionAdded, editingContribution }) => {
     useEffect(() => {
         const loadUsersAndCommittees = async () => {
             try {
-                const userList = await fetchUsers();
                 const committeeList = await fetchCommittees();
-                setUsers(userList);
                 setCommittees(committeeList);
             } catch (error) {
                 console.error("Error loading users or committees:", error);
@@ -48,12 +46,12 @@ const ContributionForm = ({ onContributionAdded, editingContribution }) => {
     const handleCommitteeChange = (e) => {
         const selectedCommitteeId = e.target.value;
         const selectedCommittee = committees.find(committee => committee._id === selectedCommitteeId);
-        setSelectedCommittee(selectedCommittee);
-        setCommitteeId(selectedCommitteeId);
-        setAmount(''); // Reset amount when committee changes
 
         if (selectedCommittee) {
-            // Calculate the contribution amount based on the selected committee
+            setSelectedCommittee(selectedCommittee);
+            setCommitteeId(selectedCommitteeId);
+            setAmount('');
+            setUsers(selectedCommittee.participants);
             calculateAmountForUser(userId, selectedCommittee);
         }
     };
@@ -75,7 +73,7 @@ const ContributionForm = ({ onContributionAdded, editingContribution }) => {
         }
 
         // Check if the selected user is part of the committee
-        const currentUser = committee.participants.find(participant => participant.user === selectedUserId);
+        const currentUser = committee.participants.find(participant => participant.user._id === selectedUserId);
         if (!currentUser) {
             setError('Selected user is not registered in this committee.');
             setAmount('');
@@ -145,23 +143,23 @@ const ContributionForm = ({ onContributionAdded, editingContribution }) => {
                 />
             </div>
             <div className="form-group">
-                <label>User</label>
-                <select value={userId} onChange={handleUserChange} required>
-                    <option value="">Select User</option>
-                    {users.map((user) => (
-                        <option key={user._id} value={user._id}>
-                            {user.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-            <div className="form-group">
                 <label>Committee</label>
                 <select value={committeeId} onChange={handleCommitteeChange} required>
                     <option value="">Select Committee</option>
                     {committees.map((committee) => (
                         <option key={committee._id} value={committee._id}>
                             {committee.name}
+                        </option>
+                    ))}
+                </select>
+            </div>
+            <div className="form-group">
+                <label>User</label>
+                <select value={userId} onChange={handleUserChange} required>
+                    <option value="">Select User</option>
+                    {users.map((user) => (
+                        <option key={user.user._id} value={user.user._id}>
+                            {user.user.name}
                         </option>
                     ))}
                 </select>
