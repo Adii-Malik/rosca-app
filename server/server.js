@@ -8,6 +8,8 @@ const contributionRoutes = require('./routes/contributionRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const drawRoutes = require('./routes/drawRoutes');
 const authRoutes = require('./routes/authRoutes');
+const socketio = require('socket.io');
+const DrawRecord = require('./models/DrawRecord');
 
 require('dotenv').config();
 
@@ -37,6 +39,100 @@ app.get('*', (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
+
+// Initialize socket.io
+const io = socketio(server, {
+    cors: {
+        origin: 'http://localhost:3000', // Allow your frontend's origin
+        methods: ['GET', 'POST'],       // Allowed HTTP methods
+        credentials: true,              // Allow credentials (if needed)
+    },
+})
+
+io.on('connection', (socket) => {
+    console.log('A user connected:', socket.id);
+
+    // Send ongoing draw data to the newly connected client
+    if (drawData) {
+        socket.emit('drawStarted', drawData);
+    }
+
+    socket.on('startDraw', (data) => {
+        console.log('Draw process started for committee:', data.committeeId);
+        startDrawProcess(data); // Trigger the draw process
+    });
+
+    socket.on('disconnect', () => {
+        console.log('A user disconnected:', socket.id);
+    });
+});
+
+let drawData = null; // Store the current draw details
+
+const startDrawProcess = async (data) => {
+    try {
+        drawData = data;
+
+        io.emit('drawStarted', drawData); // Notify all clients that the draw has started
+
+        const drawnUser = selectRandomEligibleUser(data.committeeData, data.drawRecords, data.committeeId);
+
+        if (!drawnUser) {
+            io.emit('drawCompleted', { message: 'All users have drawn already!' });
+            return;
+        }
+
+        drawData.winner = drawnUser; // Assign the drawn user
+
+        // Prepare the new draw record
+        const newDrawRecord = {
+            userId: drawnUser.user._id, // Make sure `drawnUser.user._id` is valid
+            committeeId: data.committeeId,
+            date: new Date().toISOString(),
+        };
+
+        // Call the API to create a new draw record and handle errors if any
+        const drawRecord = new DrawRecord(newDrawRecord);
+        await drawRecord.save();
+
+        // Simulate the draw process (e.g., delay for animation)
+        setTimeout(() => {
+            io.emit('drawCompleted', drawData); // Notify all clients of the draw completion
+            drawData = null; // Reset draw data after the process
+        }, 5000); // Simulate 5 seconds for the draw process
+    } catch (error) {
+        console.error('Error during draw process:', error);
+        io.emit('drawCompleted', { message: 'An error occurred during the draw!' });
+    }
+};
+
+
+// Helper function to check if a user has already drawn and is eligible to draw again
+const isUserEligibleToDraw = (user, committeeId, drawRecords) => {
+    // Get how many draws the user has made for this committee
+    const userDrawsForCommittee = drawRecords.filter(record =>
+        record.userId._id === user.user._id && record.committeeId.toString() === committeeId.toString()
+    );
+
+    // Check if the user has reached their contribution limit
+    return userDrawsForCommittee.length < user.contributionLimit;
+};
+
+// Function to randomly select a user, ensuring they haven't already drawn
+const selectRandomEligibleUser = (committeeData, drawRecords, committeeId) => {
+    const availableUsers = committeeData.participants.filter(user =>
+        isUserEligibleToDraw(user, committeeId, drawRecords)
+    );
+
+    if (availableUsers.length === 0) {
+        alert('All users have already received their draw amount!');
+        return null; // No eligible users remaining
+    }
+
+    // Randomly select an eligible user
+    const randomIndex = Math.floor(Math.random() * availableUsers.length);
+    return availableUsers[randomIndex]; // Return the selected eligible user
+};
