@@ -36,7 +36,11 @@ exports.createCommittee = async (req, res) => {
         });
 
         await newCommittee.save();
-        res.status(201).json(newCommittee);
+
+        // Populate the participants.user field
+        const populatedCommittee = await Committee.findById(newCommittee._id).populate('participants.user');
+
+        res.status(201).json(populatedCommittee);
     } catch (error) {
         console.error('Error creating committee:', error);
         res.status(500).json({ message: 'Error creating committee' });
@@ -46,7 +50,7 @@ exports.createCommittee = async (req, res) => {
 // Get all committees
 exports.getCommittees = async (req, res) => {
     try {
-        const committees = await Committee.find().populate('participants', 'name');
+        const committees = await Committee.find().populate('participants.user', 'name');
         res.status(200).json(committees);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -57,7 +61,7 @@ exports.getCommittees = async (req, res) => {
 exports.getCommittee = async (req, res) => {
     try {
         const { id } = req.params;
-        const committee = await Committee.findById(id).populate('participants', 'name');
+        const committee = await Committee.findById(id).populate('participants.user', 'name');
         res.status(200).json(committee);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -102,7 +106,7 @@ exports.updateCommittee = async (req, res) => {
                 withdrawDay
             },
             { new: true }
-        );
+        ).populate('participants.user');;
 
         if (!updatedCommittee) {
             return res.status(404).json({ message: 'Committee not found' });

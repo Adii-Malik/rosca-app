@@ -28,8 +28,7 @@ const CommitteeList = ({ committees, onCommitteeUpdated, onCommitteeDeleted, use
                             <td className="border px-6 py-4 text-sm text-gray-700">
                                 {/* Check if participants are populated */}
                                 {committee.participants.map((participant) => {
-                                    const user = users.find(u => u._id === participant.user); // Find the user by ID
-                                    return user ? `${user.name} (Limit: ${participant.contributionLimit})` : `User  ID: ${participant.user}`;
+                                    return `${participant.user.name} (Limit: ${participant.contributionLimit})`;
                                 }).join(', ')}
                             </td>
                             <td className="border px-6 py-4 text-sm text-gray-700">Rs {committee.totalPooledAmount}</td>

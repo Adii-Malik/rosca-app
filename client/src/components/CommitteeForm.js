@@ -18,7 +18,7 @@ const CommitteeForm = ({ onCommitteeAdded, onCommitteeUpdated, committee, users 
         if (committee) {
             setName(committee.name);
             setDescription(committee.description);
-            setParticipants(committee.participants.map(participant => participant._id)); // Assuming participants are stored as ObjectId
+            setParticipants(committee.participants.map(participant => participant.user._id)); // Assuming participants are stored as ObjectId
             setTotalPooledAmount(committee.totalPooledAmount);
             setDuration(committee.duration);
             setStartDate(committee.startDate.split('T')[0]); // Format date for input
@@ -28,7 +28,7 @@ const CommitteeForm = ({ onCommitteeAdded, onCommitteeUpdated, committee, users 
             // Set contribution limits based on the committee data
             const limits = {};
             committee.participants.forEach(participant => {
-                limits[participant._id] = participant.contributionLimit || 1; // Default to 1 if not set
+                limits[participant.user._id] = participant.contributionLimit || 1; // Default to 1 if not set
             });
             setContributionLimits(limits);
         } else {
@@ -63,13 +63,12 @@ const CommitteeForm = ({ onCommitteeAdded, onCommitteeUpdated, committee, users 
         const committeeData = {
             name,
             description,
-            participants: formattedParticipants, // Use the formatted participants
+            participants: formattedParticipants,
             totalPooledAmount,
             duration,
             startDate,
             endDate,
-            withdrawDay,
-            contributionLimits, // Include the contribution limits
+            withdrawDay
         };
 
         if (committee) {
