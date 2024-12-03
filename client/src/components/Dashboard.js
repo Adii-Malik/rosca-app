@@ -6,8 +6,8 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete, i
 
     const calculateCountdown = (withdrawDay) => {
         const now = new Date();
-        const currentMonthWithdrawDate = new Date(now.getFullYear(), now.getMonth(), withdrawDay);
-        const nextMonthWithdrawDate = new Date(now.getFullYear(), now.getMonth() + 1, withdrawDay);
+        const currentMonthWithdrawDate = new Date(now.getFullYear(), now.getMonth(), withdrawDay, 15, 0, 0); // 3:00 PM
+        const nextMonthWithdrawDate = new Date(now.getFullYear(), now.getMonth() + 1, withdrawDay, 15, 0, 0); // 3:00 PM
 
         let targetDate;
         if (now < currentMonthWithdrawDate) {
@@ -157,23 +157,36 @@ const Dashboard = ({ committees, onDrawUser, drawRecords, onDrawReceordDelete, i
                                         <h4 className="font-semibold text-lg text-gray-800 mb-4">Drawn Users History</h4>
                                         <div className="space-y-4">
                                             {committeeDrawRecords.length > 0 ? (
-                                                committeeDrawRecords.map(record => (
-                                                    <div key={record._id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                                                committeeDrawRecords.map((record, index) => (
+                                                    <div
+                                                        key={record._id}
+                                                        className={`p-4 rounded-lg shadow-md border ${index === 0
+                                                            ? 'bg-green-100 border-green-300' // Highlight the latest record
+                                                            : 'bg-gray-50 border-gray-200'
+                                                            }`}
+                                                    >
                                                         <div className="flex justify-between items-center">
                                                             <div>
-                                                                <strong>{record.userId ? record.userId.name : 'Unknown User'}</strong>
-                                                                <div className="text-sm text-gray-600">
+                                                                <strong className="text-lg text-gray-800">
+                                                                    {record.userId ? record.userId.name : 'Unknown User'}
+                                                                </strong>
+                                                                <div className="text-sm text-gray-600 mt-1">
                                                                     Drawn on {new Date(record.date).toLocaleDateString()}
                                                                 </div>
                                                             </div>
-                                                            <div className="text-gray-800">
-                                                                <strong>Rs {committee.totalPooledAmount}</strong>
+                                                            <div className="text-lg font-semibold text-gray-800">
+                                                                Rs {committee.totalPooledAmount}
                                                             </div>
                                                         </div>
+                                                        {index === 0 && (
+                                                            <span className="inline-block mt-2 px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
+                                                                Latest Draw
+                                                            </span>
+                                                        )}
                                                         {isAuthenticated && (
                                                             <button
                                                                 onClick={() => onDrawReceordDelete(record._id)}
-                                                                className="mt-2 text-red-500 hover:text-red-700"
+                                                                className="mt-4 text-red-500 hover:text-red-700 text-sm font-medium"
                                                             >
                                                                 Delete
                                                             </button>

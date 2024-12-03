@@ -89,7 +89,7 @@ const HomeManagement = () => {
         });
 
         socket.current.on("drawCompleted", (data) => {
-            setDrawnUser(data.winner); // Display the drawn user
+            setDrawnUser(data); // Display the drawn user
             setIsDrawing(false); // Indicate drawing has finished
             fetchDrawRecords(); // Refresh draw records
         });
