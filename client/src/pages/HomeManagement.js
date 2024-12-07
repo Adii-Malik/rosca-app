@@ -11,7 +11,10 @@ const HomeManagement = () => {
     const [drawRecords, setDrawRecords] = useState([]);
     const [isDrawing, setIsDrawing] = useState(false);
     const [drawnUser, setDrawnUser] = useState(null);
+    const [eligibleUsers, setEligibleUsers] = useState([]);
+    const [spinningStatus, setSpinningStatus] = useState(null);
     const socket = useRef(null);
+    const [queuedDrawData, setQueuedDrawData] = useState(null); // Holds `drawCompleted` data temporarily
 
     const fetchData = async () => {
         try {
@@ -78,20 +81,43 @@ const HomeManagement = () => {
         }
     };
 
+    const handleSpinStatusChange = (status) => {
+        setSpinningStatus(status);
+        console.log(`Spinning status changed to: ${status}`);
+    };
+
+    useEffect(() => {
+        // When spinning stops, process any queued drawCompleted data
+        if (!spinningStatus && queuedDrawData) {
+            console.log("Processing queued draw data after spinning stops:", queuedDrawData);
+            setDrawnUser(queuedDrawData); // Display the drawn user
+            setIsDrawing(false); // Indicate drawing has finished
+            setQueuedDrawData(null); // Clear the queue
+            fetchDrawRecords(); // Refresh draw records
+        }
+    }, [spinningStatus, queuedDrawData]); // React to spinningStatus or queuedDrawData changes
+
+
     useEffect(() => {
         fetchData();
         fetchDrawRecords();
 
         socket.current = io(process.env.REACT_APP_URL || 'https://rosca-app-8wmr3q.fly.dev'); // Replace with your server URL
         socket.current.on("drawStarted", (data) => {
+            setEligibleUsers(data.eligibleUsers);
             setIsDrawing(true); // Indicate drawing in progress
             setDrawnUser(null); // Reset drawn user display
         });
 
         socket.current.on("drawCompleted", (data) => {
-            setDrawnUser(data); // Display the drawn user
-            setIsDrawing(false); // Indicate drawing has finished
-            fetchDrawRecords(); // Refresh draw records
+            if (spinningStatus || spinningStatus == null) {
+                setQueuedDrawData(data); // Queue the data for later processing
+            } else {
+                setDrawnUser(data); // Display the drawn user
+                setIsDrawing(false); // Indicate drawing has finished
+                fetchDrawRecords(); // Refresh draw records immediately
+                setEligibleUsers([]);
+            }
         });
 
         return () => socket.current.disconnect();
@@ -103,7 +129,7 @@ const HomeManagement = () => {
 
     return (
         <div>
-            <SpinnerOverlay isActive={isDrawing} />
+            <SpinnerOverlay onSpinStatusChange={handleSpinStatusChange} eligibleUsers={eligibleUsers} isActive={isDrawing} />
             <DrawUserWithFireworks drawnUser={drawnUser} />
             <Dashboard
                 committees={dashboardData.committees}
