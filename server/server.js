@@ -76,6 +76,13 @@ const startDrawProcess = async (data) => {
     try {
         drawData = data;
 
+        const eligibleUsers = getEligibleUsers(data.committeeData, data.drawRecords, data.committeeId);
+        if (!eligibleUsers.length) {
+            io.emit('drawCompleted', { message: 'All users have drawn already!' });
+            return;
+        }
+
+        drawData.eligibleUsers = eligibleUsers;
         io.emit('drawStarted', drawData); // Notify all clients that the draw has started
 
         const drawnUser = selectRandomEligibleUser(data.committeeData, data.drawRecords, data.committeeId);
@@ -102,7 +109,7 @@ const startDrawProcess = async (data) => {
         setTimeout(() => {
             io.emit('drawCompleted', drawData);
             drawData = null;
-        }, 30000);
+        }, 20000);
     } catch (error) {
         console.error('Error during draw process:', error);
         io.emit('drawCompleted', { message: 'An error occurred during the draw!' });
@@ -135,4 +142,10 @@ const selectRandomEligibleUser = (committeeData, drawRecords, committeeId) => {
     // Randomly select an eligible user
     const randomIndex = Math.floor(Math.random() * availableUsers.length);
     return availableUsers[randomIndex]; // Return the selected eligible user
+};
+
+const getEligibleUsers = (committeeData, drawRecords, committeeId) => {
+    return committeeData.participants.filter(user =>
+        isUserEligibleToDraw(user, committeeId, drawRecords)
+    );
 };

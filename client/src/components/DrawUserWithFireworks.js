@@ -31,14 +31,14 @@ const DrawUserWithFireworks = ({ drawnUser }) => {
                     left: 0,
                     width: '100vw',
                     height: '100vh',
-                    zIndex: 1000,
+                    zIndex: 1020, // Ensure it's in front of the overlay
                     pointerEvents: 'none',
                 }}
             />
 
             {/* Overlay and Winner Card */}
             {drawnUser && (
-                <div className="fixed inset-0 z-[1010] flex items-center justify-center bg-black bg-opacity-50">
+                <div className="fixed inset-0 z-[1010] flex items-center justify-center bg-black bg-opacity-80">
                     <div className="bg-white p-8 rounded-xl shadow-lg text-center w-4/5 max-w-sm">
                         <h2 className="text-3xl font-bold text-green-600 mb-4">
                             🎉 Congratulations! 🎉
