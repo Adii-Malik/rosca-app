@@ -77,7 +77,7 @@ const startDrawProcess = async (data) => {
         drawData = data;
 
         const eligibleUsers = getEligibleUsers(data.committeeData, data.drawRecords, data.committeeId);
-        if (!eligibleUsers) {
+        if (!eligibleUsers.length) {
             io.emit('drawCompleted', { message: 'All users have drawn already!' });
             return;
         }
@@ -109,7 +109,7 @@ const startDrawProcess = async (data) => {
         setTimeout(() => {
             io.emit('drawCompleted', drawData);
             drawData = null;
-        }, 30000);
+        }, 20000);
     } catch (error) {
         console.error('Error during draw process:', error);
         io.emit('drawCompleted', { message: 'An error occurred during the draw!' });

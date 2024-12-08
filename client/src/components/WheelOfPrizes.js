@@ -114,8 +114,18 @@ const WheelOfPrizes = ({ isSpinning, eligibleUsers, onSpinStatusChange }) => {
       // Notify parent that spinning has started
       onSpinStatusChange(true);
 
-      angVel = rand(0.35, 0.55); // Random initial velocity
+      // Initialize angular velocity with a small value
+      angVel = 0.02; // Starting slowly
       spinButtonClickedRef.current = true;
+
+      // Gradually increase the velocity for the first few frames
+      let accelerationInterval = setInterval(() => {
+        angVel += 0.02; // Gradually increase the velocity
+        if (angVel >= rand(0.35, 0.55)) {
+          clearInterval(accelerationInterval); // Stop accelerating once we reach a random maximum
+        }
+      }, 50); // Increase velocity every 50ms
+
       const canvas = canvasRef.current;
       const ctx = canvas.getContext("2d");
       engine(ctx); // Start the spinning engine

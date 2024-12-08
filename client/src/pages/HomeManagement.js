@@ -110,6 +110,8 @@ const HomeManagement = () => {
         });
 
         socket.current.on("drawCompleted", (data) => {
+            if (data.message) return alert(data.message);
+
             if (spinningStatus || spinningStatus == null) {
                 setQueuedDrawData(data); // Queue the data for later processing
             } else {
