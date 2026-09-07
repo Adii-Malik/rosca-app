@@ -6,3 +6,15 @@ client/.env.development
 client/.env.production
 
 server/.env
+
+# Build output copied into the server image at deploy time
+server/client/
+
+# Local database backups
+server/backups/
+
+# Production secrets pushed to Fly — never commit
+server/.env.production
+
+# Built by the Dockerfile at deploy time; a committed copy only goes stale
+client/build/
