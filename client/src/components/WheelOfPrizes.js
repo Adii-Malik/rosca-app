@@ -133,14 +133,16 @@ const WheelOfPrizes = ({ isSpinning, eligibleUsers, onSpinStatusChange, landOnId
 
         const n = list.length;
         const from = angleRef.current;
-        // Angle that puts sector `index` under the pointer, plus 4 full turns so
-        // the deceleration reads as a spin rather than a jump.
+        // Angle that puts sector `index` under the pointer, plus a couple of full
+        // turns so the deceleration reads as a spin rather than a jump. Kept in
+        // step with the duration below: more turns over less time is a blur, not
+        // a slowdown.
         const target = (TAU * (n - index - 0.5)) / n;
         let to = target;
         while (to < from) to += TAU;
-        to += TAU * 4;
+        to += TAU * 2;
 
-        landingRef.current = { start: performance.now(), from, to, duration: 3800 };
+        landingRef.current = { start: performance.now(), from, to, duration: 2400 };
         phaseRef.current = 'landing';
     }, [landOnId]);
 

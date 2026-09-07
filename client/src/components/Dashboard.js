@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { formatCurrency, formatDate, formatMonth, initials, avatarTint } from '../utils/format';
+import { formatCurrency, formatDate, formatMonth, initials, firstName, avatarTint } from '../utils/format';
 import { Avatar, ConfirmDialog, EmptyState, Spinner, StatTile } from './ui/Primitives';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -15,32 +15,28 @@ const timeUntil = (target) => {
     };
 };
 
-const ordinal = (n) => {
-    const d = Number(n);
-    if (d % 10 === 1 && d !== 11) return 'st';
-    if (d % 10 === 2 && d !== 12) return 'nd';
-    if (d % 10 === 3 && d !== 13) return 'rd';
-    return 'th';
-};
-
-/** e.g. "5th at 15:00" — the committee's own configured schedule. */
-const scheduleLabel = (committee) =>
-    `${committee.withdrawDay}${ordinal(committee.withdrawDay)} at ` +
-    `${pad(committee.withdrawHour ?? 15)}:${pad(committee.withdrawMinute ?? 0)}`;
-
-/** Which round of the term this month is, and how many are left. */
+/**
+ * Which round the committee is on and how many payouts are still to come.
+ *
+ * Counted from rounds actually drawn rather than from months elapsed: a round
+ * that ran late leaves the two disagreeing, and the number that matters is how
+ * many payouts are still owed, not how much of the calendar has gone by.
+ */
 const termPosition = (committee) => {
     const total = committee.duration || 0;
     if (!total) return null;
 
-    if (!committee.hasStarted) return { current: 0, total, remaining: total };
+    const played = Math.min(committee.roundsPlayed || 0, total);
+    if (!committee.hasStarted) return { current: 0, played, total, remaining: total };
 
-    const start = new Date(committee.startDate);
-    const now = new Date();
-    const elapsed =
-        (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-    const current = Math.min(Math.max(elapsed + 1, 1), total);
-    return { current, total, remaining: Math.max(total - current, 0) };
+    return { current: Math.min(played + 1, total), played, total, remaining: total - played };
+};
+
+/** A period key like "2026-09" as a Date, for labelling with formatMonth. */
+const periodDate = (periodKey) => {
+    if (!periodKey) return new Date();
+    const [year, month] = periodKey.split('-').map(Number);
+    return new Date(year, month - 1, 1);
 };
 
 /** Short month label from a period key like "2025-11", for the winners rail. */
@@ -83,14 +79,12 @@ const TermSegments = ({ committee }) => {
     const term = termPosition(committee);
     if (!term) return null;
 
-    const played = committee.roundsPlayed || 0;
-
     return (
         <div className="mt-3">
             <div className="flex gap-[3px]" role="img" aria-label={`Round ${term.current} of ${term.total}`}>
                 {Array.from({ length: term.total }, (_, i) => {
                     const index = i + 1;
-                    const done = index <= played;
+                    const done = index <= term.played;
                     const now = index === term.current && !done;
                     return (
                         <span
@@ -112,10 +106,12 @@ const TermSegments = ({ committee }) => {
                         ? `Starts ${formatMonth(committee.startDate)}`
                         : `Round ${term.current} of ${term.total}`}
                 </span>
+                {/* Rounds rather than months: when a round runs late the two
+                    differ, and payouts still owed is the number that matters. */}
                 <span className="text-[11px] text-ink-500">
-                    {term.remaining === 0
+                    {term.remaining === 1
                         ? 'final round'
-                        : `${term.remaining} month${term.remaining === 1 ? '' : 's'} remaining`}
+                        : `${term.remaining} round${term.remaining === 1 ? '' : 's'} left`}
                 </span>
             </div>
         </div>
@@ -189,7 +185,40 @@ const CommitteeCard = ({
 
     const term = termPosition(committee);
     const totalRounds = term?.total || history.length;
-    const alreadyDrawn = committee.drawnThisPeriod;
+    // A round only becomes drawable on its day; once there, it stays drawable
+    // until it actually runs, however late that is.
+    const canDraw = committee.roundIsDue && !committee.allRoundsDrawn;
+
+    /**
+     * The four things this panel can be saying, kept as data so the markup
+     * stays one shape: a headline, one line of detail, and a badge. "Ready to
+     * draw" is distinct from "Automatic" on purpose — a round past its
+     * announced moment waits for an admin instead of going off unwatched.
+     */
+    const draw = committee.allRoundsDrawn
+        ? { headline: 'Every round paid out' }
+        : committee.roundReadyToDraw
+            ? {
+                headline: 'Ready to draw',
+                detail: 'Run it when members are watching',
+                badge: { text: 'Manual', tone: 'bg-amber-50 text-amber-700' },
+            }
+            : committee.roundOverdue
+                ? {
+                    headline: 'Pool incomplete',
+                    detail: committee.roundWillAutoDraw ? 'Draws as soon as every share is in' : null,
+                    badge: { text: 'Due now', tone: 'bg-amber-50 text-amber-700' },
+                }
+                : {
+                    headline: `${new Date(committee.nextDrawAt).toLocaleDateString('en-GB', {
+                        day: 'numeric',
+                        month: 'short',
+                    })} · ${pad(committee.withdrawHour ?? 15)}:${pad(committee.withdrawMinute ?? 0)}`,
+                    countdown: true,
+                    badge: committee.roundWillAutoDraw
+                        ? { text: 'Automatic', tone: 'bg-emerald-50 text-emerald-700', dot: true }
+                        : null,
+                };
 
     // Unpaid first, since chasing them is the recurring job.
     const ordered = useMemo(
@@ -218,9 +247,13 @@ const CommitteeCard = ({
                 <TermSegments committee={committee} />
             </div>
 
-            {/* This month, then who still owes */}
+            {/* The round being collected for, then who still owes */}
             <Panel
-                label={committee.hasStarted ? formatMonth(new Date()) : 'Not started'}
+                label={
+                    committee.hasStarted
+                        ? formatMonth(periodDate(committee.periodKey))
+                        : 'Not started'
+                }
                 aside={
                     committee.hasStarted ? (
                         unpaid.length ? (
@@ -269,47 +302,53 @@ const CommitteeCard = ({
 
             {/* Draw */}
             <Panel
-                label={alreadyDrawn ? 'Next draw' : "This month's draw"}
+                label={
+                    committee.allRoundsDrawn
+                        ? 'Draw'
+                        : `Round ${committee.roundNumber} · ${formatMonth(periodDate(committee.roundPeriodKey))}`
+                }
                 aside={
-                    committee.autoDraw !== false && (
-                        <span className="badge bg-emerald-50 text-emerald-700">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                            Automatic
+                    draw.badge && (
+                        <span className={`badge ${draw.badge.tone}`}>
+                            {draw.badge.dot && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                            {draw.badge.text}
                         </span>
                     )
                 }
             >
+                {/* Every state uses the same two lines — a headline and one line
+                    of detail — so the card keeps its height and the eye lands in
+                    the same place. Each fact appears once; the amount
+                    outstanding and who owes it are in the members list above,
+                    not repeated here. */}
                 <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-base font-bold text-ink-900">
-                        {new Date(committee.nextDrawAt).toLocaleDateString('en-GB', {
-                            day: 'numeric',
-                            month: 'short',
-                        })}{' '}
-                        · {pad(committee.withdrawHour ?? 15)}:{pad(committee.withdrawMinute ?? 0)}
-                    </p>
-                    <p className="text-[11px] text-ink-500">
-                        <Countdown nextDrawAt={committee.nextDrawAt} />
-                    </p>
-                </div>
-                <p className="text-[11px] text-ink-500 mt-1">
-                    Winner receives {formatCurrency(committee.totalPooledAmount)}
-                    {!isAuthenticated && ' · watch it live here'}
-                </p>
-
-                {committee.needsManualDraw && isAuthenticated && (
-                    <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
-                        <p className="text-xs text-amber-900 leading-snug">
-                            {scheduleLabel(committee)} has already passed this month, so it will not run
-                            on its own. Draw or award it below — the next one is automatic.
+                    <p className="text-base font-bold text-ink-900">{draw.headline}</p>
+                    {draw.countdown && (
+                        <p className="text-[11px] text-ink-500">
+                            <Countdown nextDrawAt={committee.nextDrawAt} />
                         </p>
-                    </div>
+                    )}
+                </div>
+
+                {!committee.allRoundsDrawn && (
+                    <p className="text-[11px] text-ink-500 mt-1">
+                        {draw.detail && `${draw.detail} · `}
+                        Winner receives {formatCurrency(committee.totalPooledAmount)}
+                        {!isAuthenticated && ' · watch it live here'}
+                    </p>
                 )}
 
-                {isAuthenticated && !alreadyDrawn && (
+                {isAuthenticated && canDraw && (
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Drawing an incomplete pool would pay out money that
+                            has not arrived, so the server refuses it; the button
+                            says so rather than failing when pressed. Awarding is
+                            still allowed — a reserved round often precedes any
+                            payment. */}
                         <button
                             onClick={() => onDrawUser(committee._id)}
-                            disabled={isDrawing}
+                            disabled={isDrawing || !committee.roundFunded}
+                            title={committee.roundFunded ? undefined : 'The pool is not complete yet.'}
                             className="btn-primary"
                         >
                             {isDrawing && <Spinner className="w-4 h-4" />}
@@ -341,7 +380,7 @@ const CommitteeCard = ({
                         const name = record?.userId?.name;
 
                         return (
-                            <div key={roundNumber} className="shrink-0 w-[52px] text-center">
+                            <div key={roundNumber} className="shrink-0 w-[58px] text-center">
                                 <p className="text-[9px] font-bold tracking-wide text-ink-400">
                                     R{roundNumber}
                                 </p>
@@ -368,7 +407,14 @@ const CommitteeCard = ({
                                         {isNow ? '?' : '·'}
                                     </span>
                                 )}
-                                <p className="text-[9.5px] text-ink-500 mt-1 truncate">
+                                {/* The winner's name, not only the month: the
+                                    point of this rail is seeing who has been
+                                    paid out, and the name was previously
+                                    reachable only by clicking through. */}
+                                <p className="text-[10px] font-semibold text-ink-700 mt-1 truncate">
+                                    {record ? firstName(name) : ''}
+                                </p>
+                                <p className="text-[9px] text-ink-400 truncate">
                                     {record ? monthShort(record.periodKey, record.date) : ''}
                                 </p>
                             </div>

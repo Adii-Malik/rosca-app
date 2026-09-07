@@ -46,7 +46,6 @@ export const fetchDashboard = async () => (await axiosInstance.get('/dashboards'
 
 // ---- Draws ----
 export const fetchDraws = async () => (await axiosInstance.get('/draws')).data;
-export const createDraw = async (data) => (await axiosInstance.post('/draws', data)).data;
 export const deleteDraw = async (id) => (await axiosInstance.delete(`/draws/${id}`)).data;
 
 // ---- Archive ----

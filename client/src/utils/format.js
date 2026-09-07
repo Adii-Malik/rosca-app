@@ -13,14 +13,28 @@ export const formatDate = (value) =>
 export const formatMonth = (value) =>
     value ? new Date(value).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : '—';
 
+/**
+ * A name with qualifiers and punctuation stripped, e.g. "Adii (admin)" -> "Adii".
+ * Names here are typed by hand and often carry a note in brackets, which used to
+ * end up in the avatar as a literal bracket.
+ */
+const plainName = (name = '') =>
+    name
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+        .trim();
+
 /** Initials for avatar chips, e.g. "Ayesha Khan" -> "AK". */
 export const initials = (name = '') =>
-    name
-        .split(' ')
+    plainName(name)
+        .split(/\s+/)
         .filter(Boolean)
         .slice(0, 2)
         .map((part) => part[0].toUpperCase())
         .join('') || '?';
+
+/** Just enough of a name to fit under an avatar, e.g. "Naveed Bhi" -> "Naveed". */
+export const firstName = (name = '') => plainName(name).split(/\s+/)[0] || '—';
 
 /** Deterministic colour per name, so a person keeps the same avatar tint. */
 export const avatarTint = (name = '') => {
