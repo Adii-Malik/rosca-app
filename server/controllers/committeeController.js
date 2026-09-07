@@ -3,6 +3,38 @@ const Committee = require('../models/Committee');
 const Contribution = require('../models/Contribution');
 const DrawRecord = require('../models/DrawRecord');
 
+/** Whole months from `start`'s month to `end`'s month, counting both. */
+const monthsInclusive = (start, end) =>
+    (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+
+/**
+ * The term length is the share count, so the end date has to agree with it.
+ * Counts months inclusively — a committee starting in September and ending in
+ * June runs ten rounds, September through June -- which is how people read the
+ * dates they typed. Returns a message when they disagree, or null when they fit.
+ */
+const describeTermMismatch = (startDate, endDate, rounds) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        return 'Start and end dates must both be valid dates.';
+    }
+    if (end < start) return 'The end date must fall on or after the start date.';
+
+    const months = monthsInclusive(start, end);
+    if (months === rounds) return null;
+
+    const expectedEnd = new Date(start);
+    expectedEnd.setMonth(expectedEnd.getMonth() + rounds - 1);
+    const monthLabel = expectedEnd.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+    return (
+        `This committee has ${rounds} share${rounds === 1 ? '' : 's'}, so it needs ` +
+        `${rounds} round${rounds === 1 ? '' : 's'} — but the dates cover ${months} ` +
+        `month${months === 1 ? '' : 's'}. Either end it in ${monthLabel} or adjust the shares.`
+    );
+};
+
 exports.createCommittee = async (req, res) => {
     try {
         const {
@@ -10,18 +42,19 @@ exports.createCommittee = async (req, res) => {
             withdrawHour, withdrawMinute, timezone, autoDraw,
         } = req.body;
 
-        // Calculate the duration in months
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        // endDate is exclusive: a committee running 1 Dec 2024 -> 1 Dec 2025 pays
-        // out in 12 rounds, Dec 2024 through Nov 2025. The start month is
-        // already counted; adding one would invent a round that never happens.
-        const duration = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-
         // Calculate the total contribution limit from all participants
         const totalContributionLimit = participants.reduce((total, participant) => {
             return total + (participant.contributionLimit || 1); // Default to 1 if not provided
         }, 0);
+
+        // One round pays out one share, so the term is exactly as long as there
+        // are shares. Deriving it from the dates instead used to let the two
+        // disagree — a committee of 10 shares whose dates spanned 9 months left
+        // one share never paid out -- so the dates are validated against the
+        // share count rather than being the source of it.
+        const duration = totalContributionLimit;
+        const mismatch = describeTermMismatch(startDate, endDate, duration);
+        if (mismatch) return res.status(400).json({ message: mismatch });
 
         // Calculate the monthly amount based on the total contribution limit
         const monthlyAmount = totalContributionLimit > 0 ? totalPooledAmount / totalContributionLimit : 0;
@@ -129,18 +162,15 @@ exports.updateCommittee = async (req, res) => {
             });
         }
 
-        // Calculate the duration in months
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        // endDate is exclusive: a committee running 1 Dec 2024 -> 1 Dec 2025 pays
-        // out in 12 rounds, Dec 2024 through Nov 2025. The start month is
-        // already counted; adding one would invent a round that never happens.
-        const duration = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-
         // Calculate the total contribution limit from all participants
         const totalContributionLimit = participants.reduce((total, participant) => {
             return total + (participant.contributionLimit || 1); // Default to 1 if not provided
         }, 0);
+
+        // The term is the share count — see createCommittee.
+        const duration = totalContributionLimit;
+        const mismatch = describeTermMismatch(startDate, endDate, duration);
+        if (mismatch) return res.status(400).json({ message: mismatch });
 
         // Calculate the monthly amount based on the total contribution limit
         const monthlyAmount = totalContributionLimit > 0 ? totalPooledAmount / totalContributionLimit : 0;

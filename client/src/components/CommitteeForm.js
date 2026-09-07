@@ -86,6 +86,32 @@ const CommitteeForm = ({ committee, users, onSubmit, onCancelEdit }) => {
     // Mirrors the server's calculation so the figures are visible before saving.
     const perShare = totalShares > 0 ? (Number(form.totalPooledAmount) || 0) / totalShares : 0;
 
+    // One round pays out one share, so the term runs for as many months as there
+    // are shares — counted inclusively, the way the dates read. Surfaced here
+    // because the server rejects the mismatch and this is where it is fixable.
+    const termMonths = useMemo(() => {
+        if (!form.startDate || !form.endDate) return null;
+        const start = new Date(form.startDate);
+        const end = new Date(form.endDate);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+        return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+    }, [form.startDate, form.endDate]);
+
+    const suggestedEnd = useMemo(() => {
+        if (!form.startDate || !totalShares) return null;
+        const end = new Date(form.startDate);
+        if (Number.isNaN(end.getTime())) return null;
+        end.setMonth(end.getMonth() + totalShares - 1);
+        return end;
+    }, [form.startDate, totalShares]);
+
+    const termMismatch =
+        termMonths !== null && totalShares > 0 && termMonths !== totalShares
+            ? `${totalShares} share${totalShares === 1 ? '' : 's'} needs ${totalShares} ` +
+              `round${totalShares === 1 ? '' : 's'}, but these dates cover ${termMonths} ` +
+              `month${termMonths === 1 ? '' : 's'}.`
+            : null;
+
     const addParticipant = (userId) =>
         setParticipants((current) => [...current, { userId, contributionLimit: 1 }]);
 
@@ -106,6 +132,10 @@ const CommitteeForm = ({ committee, users, onSubmit, onCancelEdit }) => {
         }
         if (new Date(form.endDate) <= new Date(form.startDate)) {
             toast.error('The end date must be after the start date.');
+            return;
+        }
+        if (termMismatch) {
+            toast.error(termMismatch);
             return;
         }
 
@@ -197,6 +227,21 @@ const CommitteeForm = ({ committee, users, onSubmit, onCancelEdit }) => {
                     <input id="c-end" type="date" value={form.endDate} onChange={setField('endDate')} className="input" required />
                 </div>
             </div>
+
+            {termMismatch && (
+                <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    {termMismatch}{' '}
+                    {suggestedEnd && (
+                        <button
+                            type="button"
+                            className="underline font-medium"
+                            onClick={() => setForm((f) => ({ ...f, endDate: toDateInputValue(suggestedEnd) }))}
+                        >
+                            End it {suggestedEnd.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })} instead
+                        </button>
+                    )}
+                </p>
+            )}
 
             {/* The draw runs on the server at this moment, so it happens whether
                 or not anyone has the page open. */}

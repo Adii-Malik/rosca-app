@@ -21,7 +21,8 @@
     "inspect-db": "node scripts/inspect-db.js",
     "hash-password": "node scripts/hash-password.js",
     "migrate:draw-dates": "node scripts/migrate-draw-dates.js",
-    "close-finished": "node scripts/close-finished-committees.js"
+    "close-finished": "node scripts/close-finished-committees.js",
+    "resync-durations": "node scripts/resync-durations.js"
   },
   "author": "Adii Malik",
   "license": "MIT"
