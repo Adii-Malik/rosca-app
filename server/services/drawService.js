@@ -8,19 +8,132 @@ const Contribution = require('../models/Contribution');
 const DrawRecord = require('../models/DrawRecord');
 const schedule = require('../lib/schedule');
 
-// How long the wheel animation runs on the client before the winner is revealed.
-const ANIMATION_MS = Number(process.env.DRAW_ANIMATION_MS) || 20000;
+// How long the wheel spins before the server reveals the winner. The client
+// then decelerates onto them, so the draw lasts this plus the landing — long
+// enough to build to the reveal, short enough not to be a wait.
+const ANIMATION_MS = Number(process.env.DRAW_ANIMATION_MS) || 7000;
 
 class DrawError extends Error {}
 
-const monthBounds = (date = new Date()) => ({
-    start: new Date(date.getFullYear(), date.getMonth(), 1),
-    end: new Date(date.getFullYear(), date.getMonth() + 1, 1),
-});
+// Share amounts divide a pool that rarely divides evenly, so "paid in full" is
+// judged to the nearest rupee rather than exactly.
+const ROUNDING_TOLERANCE = 1;
+
+// How far past its announced moment the server will still run a draw on its
+// own. This covers a draw missed because the process was down or restarting —
+// minutes, normally — without letting a round that has been waiting on money
+// for days fire the instant the last payment is recorded.
+const AUTO_DRAW_GRACE_MS = Number(process.env.DRAW_AUTO_GRACE_MS) || 60 * 60 * 1000;
 
 // Cryptographically fair pick — Math.random is not appropriate for deciding
 // who receives money.
 const pickRandom = (items) => items[crypto.randomInt(items.length)];
+
+/**
+ * The round this committee owes next: the earliest one it has not drawn.
+ *
+ * Rounds are positions in the term, one per month, so a round that was not drawn
+ * on its day is still owed afterwards. A committee that starts in September and
+ * pays out through June owes ten rounds, and the September round stays
+ * outstanding until it actually runs — drawing it late records it against
+ * September, where it belongs.
+ *
+ * Found by looking for the first undrawn period rather than by counting
+ * records, so deleting a round that was drawn in error reopens that round
+ * instead of leaving the sequence pointing past it at one already taken.
+ */
+const nextRoundFor = (committee, drawRecords = [], now = new Date()) => {
+    const drawn = new Set(drawRecords.map((r) => r.periodKey).filter(Boolean));
+
+    for (let roundNumber = 1; roundNumber <= committee.duration; roundNumber += 1) {
+        const periodKey = schedule.periodKeyForRound(committee, roundNumber);
+        if (drawn.has(periodKey)) continue;
+
+        // The announced moment, if this round has one it has not long passed.
+        // Absent means an admin runs this round by hand: see autoDrawInstantFor.
+        const autoAt = schedule.autoDrawInstantFor(committee, roundNumber);
+        const autoDrawAt =
+            autoAt && now - autoAt <= AUTO_DRAW_GRACE_MS && committee.autoDraw !== false
+                ? autoAt
+                : null;
+
+        return {
+            roundNumber,
+            beyondTerm: false,
+            periodKey,
+            dueAt: schedule.dueAtForRound(committee, roundNumber),
+            isDue: schedule.roundIsDue(committee, roundNumber, now),
+            autoDrawAt,
+            autoDrawDue: Boolean(autoDrawAt) && now >= autoDrawAt,
+        };
+    }
+
+    return {
+        roundNumber: committee.duration + 1,
+        beyondTerm: true,
+        periodKey: null,
+        dueAt: null,
+        isDue: false,
+        autoDrawAt: null,
+        autoDrawDue: false,
+    };
+};
+
+/**
+ * Who has and has not paid in for a round, and whether the pool is complete.
+ *
+ * The whole pool is handed to one member, so it has to be collected first.
+ * Requiring a single contribution — the previous rule — let a draw pay out
+ * money that had not arrived.
+ */
+const fundingFor = (committee, contributions, periodKey) => {
+    const tz = schedule.committeeTimezone(committee);
+    const forPeriod = contributions.filter(
+        (c) => schedule.periodKeyFor(c.date, tz) === periodKey
+    );
+
+    const paidByUser = new Map();
+    for (const contribution of forPeriod) {
+        const id = String(contribution.userId);
+        paidByUser.set(id, (paidByUser.get(id) || 0) + (contribution.amount || 0));
+    }
+
+    const totalShares = committee.participants.reduce((sum, p) => sum + (p.contributionLimit || 1), 0);
+
+    const members = committee.participants
+        .filter((p) => p.user)
+        .map((participant) => {
+            const shares = participant.contributionLimit || 1;
+            const owed = totalShares > 0 ? (committee.totalPooledAmount * shares) / totalShares : 0;
+            const userId = String(participant.user._id || participant.user);
+            const paid = paidByUser.get(userId) || 0;
+            return {
+                userId,
+                name: participant.user.name,
+                shares,
+                owed,
+                paid,
+                outstanding: Math.max(owed - paid, 0),
+                settled: paid + ROUNDING_TOLERANCE >= owed,
+            };
+        });
+
+    const unpaid = members.filter((m) => !m.settled);
+    return {
+        members,
+        unpaid,
+        collected: members.reduce((sum, m) => sum + m.paid, 0),
+        outstanding: unpaid.reduce((sum, m) => sum + m.outstanding, 0),
+        funded: unpaid.length === 0 && members.length > 0,
+    };
+};
+
+/**
+ * The shortfall as an amount, e.g. "Rs 10,000". Deliberately not a list of
+ * names: who still owes belongs in the members list, where it is shown once.
+ */
+const describeShortfall = (funding) =>
+    `Rs ${Math.round(funding.outstanding).toLocaleString('en-PK')}`;
 
 /**
  * Participants who may still be drawn: those who have not yet been paid out as
@@ -55,29 +168,34 @@ const performDraw = async (committeeId, { trigger = 'manual', now = new Date() }
         throw new DrawError('This committee has finished; no further draws can be made.');
     }
 
-    const periodKey = schedule.periodKeyFor(now, schedule.committeeTimezone(committee));
     const drawRecords = await DrawRecord.find({ committeeId });
+    const round = nextRoundFor(committee, drawRecords, now);
 
-    // One draw per committee per round. A unique index backs this up, so two
-    // simultaneous attempts cannot both succeed.
-    const alreadyDrawn = drawRecords.some((record) => {
-        if (record.periodKey) return record.periodKey === periodKey;
-        // Legacy records predate periodKey; fall back to a date comparison.
-        const { start, end } = monthBounds(now);
-        const when = new Date(record.date);
-        return when >= start && when < end;
-    });
-    if (alreadyDrawn) {
-        throw new DrawError('A draw has already been made for this committee this month.');
+    if (round.beyondTerm) {
+        throw new DrawError('Every round of this committee has already been drawn.');
+    }
+    if (!round.isDue) {
+        const when = round.dueAt.toLocaleString('en-GB', {
+            timeZone: schedule.committeeTimezone(committee),
+            day: 'numeric',
+            month: 'long',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        throw new DrawError(`Round ${round.roundNumber} is not due yet — it opens on ${when}.`);
     }
 
-    const { start, end } = monthBounds(now);
-    const contributionsThisMonth = await Contribution.countDocuments({
-        committeeId,
-        date: { $gte: start, $lt: end },
-    });
-    if (contributionsThisMonth === 0) {
-        throw new DrawError('No users have contributed this month.');
+    // Scoped to the round's own month in the committee's timezone, so drawing a
+    // late round still checks the month that round belongs to.
+    const { start, end } = schedule.periodBounds(round.periodKey, schedule.committeeTimezone(committee));
+    const contributions = await Contribution.find({ committeeId, date: { $gte: start, $lt: end } });
+    const funding = fundingFor(committee, contributions, round.periodKey);
+
+    if (!funding.funded) {
+        throw new DrawError(
+            `Round ${round.roundNumber} cannot be drawn until the pool is complete — ` +
+            `${describeShortfall(funding)} of it is still to be collected.`
+        );
     }
 
     const eligible = eligibleParticipants(committee, drawRecords);
@@ -91,8 +209,8 @@ const performDraw = async (committeeId, { trigger = 'manual', now = new Date() }
         committee,
         eligible,
         winner,
-        periodKey,
-        roundNumber: drawRecords.length + 1,
+        periodKey: round.periodKey,
+        roundNumber: round.roundNumber,
         trigger,
     };
 };
@@ -121,7 +239,7 @@ const recordWinner = async (committeeId, { winner, eligible, periodKey, roundNum
     } catch (error) {
         // Unique index violation: another draw for this round landed first.
         if (error.code === 11000) {
-            throw new DrawError('A draw has already been made for this committee this month.');
+            throw new DrawError('This round has already been drawn for this committee.');
         }
         throw error;
     }
@@ -134,7 +252,9 @@ module.exports = {
     recordWinner,
     eligibleParticipants,
     isFullyPaidOut,
-    monthBounds,
+    nextRoundFor,
+    fundingFor,
+    describeShortfall,
 };
 
 /**
@@ -152,17 +272,10 @@ const assignRound = async (committeeId, userId, { now = new Date() } = {}) => {
         throw new DrawError('This committee has finished; no further rounds can be awarded.');
     }
 
-    const periodKey = schedule.periodKeyFor(now, schedule.committeeTimezone(committee));
     const drawRecords = await DrawRecord.find({ committeeId });
-
-    const alreadyDrawn = drawRecords.some((record) => {
-        if (record.periodKey) return record.periodKey === periodKey;
-        const { start, end } = monthBounds(now);
-        const when = new Date(record.date);
-        return when >= start && when < end;
-    });
-    if (alreadyDrawn) {
-        throw new DrawError('This committee already has a winner for this month.');
+    const round = nextRoundFor(committee, drawRecords, now);
+    if (round.beyondTerm) {
+        throw new DrawError('Every round of this committee has already been drawn.');
     }
 
     const participant = committee.participants.find(
@@ -181,14 +294,14 @@ const assignRound = async (committeeId, userId, { now = new Date() } = {}) => {
         userId: participant.user._id,
         committeeId,
         date: now,
-        periodKey,
-        roundNumber: drawRecords.length + 1,
+        periodKey: round.periodKey,
+        roundNumber: round.roundNumber,
         payoutAmount: committee.totalPooledAmount,
         trigger: 'assigned',
         // No eligible snapshot: nothing was drawn, so there is nothing to replay.
     });
 
-    return { committee, participant, record, periodKey };
+    return { committee, participant, record, periodKey: round.periodKey };
 };
 
 module.exports.assignRound = assignRound;

@@ -18,10 +18,17 @@ const TICK_MS = Number(process.env.SCHEDULER_TICK_MS) || 60000;
 const closeIfFinished = async (committee) => {
     const drawRecords = await DrawRecord.find({ committeeId: committee._id });
 
+    // Only a committee that owes nothing closes itself.
+    //
+    // It used to close as soon as the end date passed, which quietly abandoned
+    // any round that had not been drawn — a member who never received their
+    // payout. A committee running past its term with a round outstanding is
+    // genuinely unfinished, so it stays on the dashboard until the round is
+    // drawn, or an admin closes it deliberately.
     let reason = null;
     if (drawService.isFullyPaidOut(committee, drawRecords)) {
         reason = 'all-paid-out';
-    } else if (new Date(committee.endDate) < new Date()) {
+    } else if (drawRecords.length >= committee.duration && new Date(committee.endDate) < new Date()) {
         reason = 'term-ended';
     }
     if (!reason) return false;
@@ -48,10 +55,17 @@ const tick = async ({ runDraw, now = new Date() } = {}) => {
         try {
             if (await closeIfFinished(committee)) continue;
             if (committee.autoDraw === false) continue;
-            if (!schedule.isDue(committee, now)) continue;
 
-            // performDraw rejects a round that has already been drawn, so a due
-            // committee is retried each tick until it actually succeeds.
+            const drawn = await DrawRecord.find({ committeeId: committee._id }, 'periodKey');
+            const round = drawService.nextRoundFor(committee, drawn, now);
+
+            // Only at the announced moment. A round that is drawable but past
+            // that moment stays for an admin to run — the dashboard shows it as
+            // ready — rather than starting a draw nobody is watching.
+            if (!round.autoDrawDue) continue;
+
+            // performDraw still refuses an incomplete pool, so a round whose
+            // money has not all arrived by its moment is not drawn at all.
             await runDraw(committee._id, { trigger: 'scheduled' });
             started.push(String(committee._id));
         } catch (error) {

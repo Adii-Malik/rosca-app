@@ -2,16 +2,11 @@
 const DrawRecord = require('../models/DrawRecord');
 const drawService = require('../services/drawService');
 
-exports.createDrawRecord = async (req, res) => {
-    try {
-        const { userId, committeeId, date } = req.body;
-        const drawRecord = new DrawRecord({ userId, committeeId, date });
-        await drawRecord.save();
-        res.status(201).json(drawRecord);
-    } catch (error) {
-        res.status(500).json({ message: 'Error creating draw record', error });
-    }
-};
+// There is deliberately no endpoint for inserting a draw record directly. One
+// existed, unused by the app, and it wrote a record with no round or period
+// attached — which now shifts every later round out of step with the term.
+// Winners arrive either by a draw or by `awardRound`, both of which place the
+// record in its proper round.
 
 exports.getDrawRecords = async (req, res) => {
     try {

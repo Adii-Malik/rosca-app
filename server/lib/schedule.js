@@ -71,54 +71,89 @@ const scheduledInstantFor = (committee, date = new Date()) =>
     instantForZonedTime(scheduledFieldsFor(committee, date), committeeTimezone(committee));
 
 /**
- * True once this round's scheduled moment has arrived or passed.
+ * The period a round belongs to, counted from the committee's first month.
  *
- * The round is skipped when its scheduled moment falls before the committee
- * begins. Without that check, creating a committee on the 7th with a draw day of
- * the 5th fired a draw immediately — for a round that pre-dated the committee.
- * Catch-up within a round is deliberate, so a draw missed while the server was
- * down still runs; reaching back before the committee started is not.
+ * Rounds are positions in the term, not "whatever month it happens to be".
+ * A round that could not be drawn on its day — nobody had finished paying in,
+ * say — is still that round afterwards, so it waits rather than being lost when
+ * the calendar moves on. Round 1 is always the committee's start month, which
+ * is a payout month like any other.
  */
-const isDue = (committee, date = new Date()) => {
-    const start = committee.startDate ? new Date(committee.startDate) : null;
+const periodKeyForRound = (committee, roundNumber) => {
+    const { year, month } = zonedParts(new Date(committee.startDate), committeeTimezone(committee));
+    const index = month - 1 + (roundNumber - 1);
+    return `${year + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+};
 
-    if (start && date < start) return false;
-
-    const scheduled = scheduledInstantFor(committee, date);
-    if (start && scheduled < start) return false;
-
-    return date >= scheduled;
+/** The instants bounding a period's calendar month, in the committee's zone. */
+const periodBounds = (periodKey, timeZone = DEFAULT_TIMEZONE) => {
+    const [year, month] = periodKey.split('-').map(Number);
+    const at = (y, m) => instantForZonedTime({ year: y, month: m, day: 1, hour: 0, minute: 0 }, timeZone);
+    return {
+        start: at(year, month),
+        end: month === 12 ? at(year + 1, 1) : at(year, month + 1),
+    };
 };
 
 /**
- * Milliseconds until the next scheduled withdrawal. Used by the UI countdown so
- * the clock on screen refers to the moment the server will actually act.
+ * The round's own scheduled moment — its configured day and time in its month,
+ * with no regard for when the committee began. This is the announced time, the
+ * one members are told to watch.
  */
-const msUntilNext = (committee, date = new Date()) => {
-    const tz = committeeTimezone(committee);
-    const hour = committee.withdrawHour ?? DEFAULT_HOUR;
-    const minute = committee.withdrawMinute ?? DEFAULT_MINUTE;
+const scheduledInstantForRound = (committee, roundNumber) => {
+    const [year, month] = periodKeyForRound(committee, roundNumber).split('-').map(Number);
 
+    // A committee set to withdraw on the 31st still needs to fire in February.
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+    return instantForZonedTime(
+        {
+            year,
+            month,
+            day: Math.min(committee.withdrawDay || 1, daysInMonth),
+            hour: committee.withdrawHour ?? DEFAULT_HOUR,
+            minute: committee.withdrawMinute ?? DEFAULT_MINUTE,
+        },
+        committeeTimezone(committee)
+    );
+};
+
+/**
+ * The moment a round may be drawn at all: its scheduled moment, but never before
+ * the committee itself begins.
+ *
+ * The clamp is what makes the start month count. A committee created on the 7th
+ * with a draw day of the 5th used to skip its first round entirely — the
+ * scheduled moment had already passed, so the round was treated as belonging to
+ * a time before the committee existed. That round is now simply drawable from
+ * the start date onwards.
+ */
+const dueAtForRound = (committee, roundNumber) => {
+    const scheduled = scheduledInstantForRound(committee, roundNumber);
     const start = committee.startDate ? new Date(committee.startDate) : null;
+    return start && scheduled < start ? start : scheduled;
+};
 
-    // Step forward a month at a time until a scheduled instant lies ahead, and
-    // skip any that fall before the committee begins.
-    for (let offset = 0; offset <= 13; offset += 1) {
-        const { year, month } = zonedParts(date, tz);
-        const probeMonth = month + offset;
-        const probeYear = year + Math.floor((probeMonth - 1) / 12);
-        const normalisedMonth = ((probeMonth - 1) % 12) + 1;
+/** True once the round may be drawn. Overdue rounds stay drawable. */
+const roundIsDue = (committee, roundNumber, date = new Date()) =>
+    date >= dueAtForRound(committee, roundNumber);
 
-        const daysInMonth = new Date(Date.UTC(probeYear, normalisedMonth, 0)).getUTCDate();
-        const day = Math.min(committee.withdrawDay || 1, daysInMonth);
-
-        const instant = instantForZonedTime(
-            { year: probeYear, month: normalisedMonth, day, hour, minute },
-            tz
-        );
-        if (instant > date && (!start || instant >= start)) return instant - date;
-    }
-    return 0;
+/**
+ * When, if ever, the server should run this round unattended — or null if it
+ * should not.
+ *
+ * Being *allowed* to draw and being drawn *automatically* are different things.
+ * A draw is an event members are told to watch, so the server runs one only at
+ * the announced moment. A round whose announced moment falls before the
+ * committee started never had one, and a round drawn hours or days late because
+ * the money arrived late has already missed it — firing then would spring a
+ * draw on an empty room, the moment an admin happened to record the last
+ * payment. Those are left for an admin to run when everyone is present.
+ */
+const autoDrawInstantFor = (committee, roundNumber) => {
+    const scheduled = scheduledInstantForRound(committee, roundNumber);
+    const start = committee.startDate ? new Date(committee.startDate) : null;
+    return start && scheduled < start ? null : scheduled;
 };
 
 /**
@@ -140,8 +175,12 @@ module.exports = {
     periodKeyFor,
     committeeTimezone,
     scheduledFieldsFor,
-    isDue,
     scheduledInstantFor,
-    msUntilNext,
+    periodKeyForRound,
+    periodBounds,
+    scheduledInstantForRound,
+    dueAtForRound,
+    roundIsDue,
+    autoDrawInstantFor,
     instantForZonedTime,
 };
