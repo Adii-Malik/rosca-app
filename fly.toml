@@ -1,23 +1,48 @@
-# fly.toml app configuration file generated for rosca-app-8wmr3q on 2024-11-29T11:22:03Z
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# fly.toml — Committee
 
-app = 'rosca-app-8wmr3q'
+app = 'committee-app'
+# Singapore. Mumbai (bom) would be closer to Pakistan but Fly has deprecated it
+# and will not provision there; sin and Frankfurt are the nearest alternatives,
+# and sin generally routes better from South Asia.
 primary_region = 'sin'
 
 [build]
 
+[env]
+  NODE_ENV = 'production'
+  # Must match internal_port below and the PORT in the Dockerfile.
+  PORT = '8080'
+
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+
+  # The draw scheduler is a timer inside this process, so the machine has to stay
+  # awake. With auto-stop enabled a sleeping machine fires no draw, which defeats
+  # the point of scheduling one.
+  auto_stop_machines = 'off'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
+  [http_service.concurrency]
+    type = 'requests'
+    hard_limit = 200
+    soft_limit = 150
+
+# Keep exactly one machine: the scheduler runs per process, so a second machine
+# would attempt the same draw. The unique index on (committeeId, periodKey)
+# stops a duplicate being written, but one machine avoids the race entirely.
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
-  cpus = 1
-  memory_mb = 1024
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+
+[checks]
+  [checks.health]
+    type = 'http'
+    port = 8080
+    method = 'GET'
+    path = '/api/health'
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '20s'

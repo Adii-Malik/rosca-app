@@ -1,0 +1,11 @@
+# Without this, `COPY client ./client` would pull in node_modules and — worse —
+# the local .env files, baking development URLs into the production bundle.
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+client/build
+server/client
+.git
+.gitignore
+*.md
