@@ -1,11 +1,14 @@
-// /routes/drawRoutes.js
+// routes/drawRoutes.js
 const express = require('express');
-const { createDrawRecord, getDrawRecords, deleteDrawRecord } = require('../controllers/drawController');
+const { createDrawRecord, getDrawRecords, deleteDrawRecord, awardRound } = require('../controllers/drawController');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.post('/', createDrawRecord);
 router.get('/', getDrawRecords);
-router.delete('/:id', deleteDrawRecord);
+
+router.post('/', requireAuth, createDrawRecord);
+router.post('/award', requireAuth, awardRound);
+router.delete('/:id', requireAuth, deleteDrawRecord);
 
 module.exports = router;

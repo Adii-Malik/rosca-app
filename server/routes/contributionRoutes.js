@@ -1,11 +1,16 @@
 // routes/contributionRoutes.js
 const express = require('express');
-const { createContribution, getContributions, updateContribution, deleteContribution } = require('../controllers/contributionController');
+const {
+    createContribution, createContributionsBulk, getContributions, updateContribution, deleteContribution,
+} = require('../controllers/contributionController');
+const { requireAuth } = require('../middleware/auth');
 const router = express.Router();
 
-router.post('/', createContribution);
 router.get('/', getContributions);
-router.put('/:id', updateContribution);
-router.delete('/:id', deleteContribution);
+
+router.post('/', requireAuth, createContribution);
+router.post('/bulk', requireAuth, createContributionsBulk);
+router.put('/:id', requireAuth, updateContribution);
+router.delete('/:id', requireAuth, deleteContribution);
 
 module.exports = router;

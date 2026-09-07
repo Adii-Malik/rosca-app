@@ -1,18 +1,21 @@
+// routes/authRoutes.js
 const express = require('express');
-const basicAuth = require('express-basic-auth');
+const rateLimit = require('express-rate-limit');
+const { login, me } = require('../controllers/authController');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Basic authentication middleware
-router.use(basicAuth({
-    users: { 'admin': 'password123' }, // Define users here
-    challenge: true,
-    unauthorizedResponse: 'Unauthorized'
-}));
-
-// Protected route
-router.get('/authenticate', (req, res) => {
-    res.json({ message: 'Authenticated successfully', user: req.auth.user });
+// Blunt brute-force protection on the only credential-checking endpoint.
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: 'Too many login attempts. Try again later.' },
 });
+
+router.post('/login', loginLimiter, login);
+router.get('/me', requireAuth, me);
 
 module.exports = router;

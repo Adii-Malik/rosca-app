@@ -1,20 +1,27 @@
 {
-  "name": "rosco-backend",
+  "name": "rosca-backend",
   "version": "1.0.0",
   "description": "Backend for ROSCA app",
   "main": "server.js",
   "dependencies": {
-    "body-parser": "^1.20.1",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
-    "express-basic-auth": "^1.2.1",
-    "mongoose": "^7.0.1",
-    "react-icons": "^5.3.0",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.24.4",
     "socket.io": "^4.8.1"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node scripts/seed.js",
+    "inspect-db": "node scripts/inspect-db.js",
+    "hash-password": "node scripts/hash-password.js",
+    "migrate:draw-dates": "node scripts/migrate-draw-dates.js",
+    "close-finished": "node scripts/close-finished-committees.js"
   },
   "author": "Adii Malik",
   "license": "MIT"
