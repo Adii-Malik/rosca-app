@@ -61,6 +61,15 @@
     @apply w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900
            placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500;
   }
+  /* Safari zooms the page in when a focused field's text is smaller than 16px,
+     and does not reliably zoom back out afterwards — which is why signing in
+     left the whole app scaled. Only touch devices do this, so the desktop
+     keeps the smaller field text. */
+  @media (pointer: coarse) {
+    .input {
+      font-size: 1rem;
+    }
+  }
   .label {
     @apply block text-sm font-medium text-ink-700 mb-1.5;
   }

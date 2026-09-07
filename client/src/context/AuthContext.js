@@ -8,7 +8,7 @@ export const useAuth = () => useContext(AuthContext);
 
 const readToken = () => {
     try {
-        return sessionStorage.getItem(TOKEN_KEY);
+        return localStorage.getItem(TOKEN_KEY);
     } catch {
         return null;
     }
@@ -22,7 +22,7 @@ const AuthProvider = ({ children }) => {
 
     const logout = useCallback(() => {
         try {
-            sessionStorage.removeItem(TOKEN_KEY);
+            localStorage.removeItem(TOKEN_KEY);
         } catch {
             /* storage unavailable */
         }
@@ -65,9 +65,9 @@ const AuthProvider = ({ children }) => {
     const login = useCallback(async (username, password) => {
         const { token: issued, user: authenticated } = await loginRequest(username, password);
         try {
-            sessionStorage.setItem(TOKEN_KEY, issued);
+            localStorage.setItem(TOKEN_KEY, issued);
         } catch {
-            /* storage unavailable — session lasts until reload */
+            /* storage unavailable — the session lasts until reload */
         }
         setToken(issued);
         setUser(authenticated);

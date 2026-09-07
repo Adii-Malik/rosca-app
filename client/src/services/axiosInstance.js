@@ -4,9 +4,16 @@ import axios from 'axios';
 // cannot drift apart.
 export const TOKEN_KEY = 'rosca.token';
 
+/**
+ * localStorage rather than sessionStorage: added to a phone's home screen this
+ * runs as its own app, and sessionStorage is emptied every time that app is
+ * closed, so signing in again was the first thing anyone had to do on opening
+ * it. How long a session lasts is the token's business — it carries an expiry,
+ * and any 401 clears it — not a question of which drawer it is kept in.
+ */
 export const getToken = () => {
     try {
-        return sessionStorage.getItem(TOKEN_KEY);
+        return localStorage.getItem(TOKEN_KEY);
     } catch {
         return null;
     }
