@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
-import { fetchDashboard, fetchDraws, deleteDraw, awardRound, errorMessage } from '../services/api';
+import {
+    fetchDashboard, fetchDraws, deleteDraw, awardRound, fetchDrawReplay, errorMessage,
+} from '../services/api';
 import Dashboard from '../components/Dashboard';
 import DrawUserWithFireworks from '../components/DrawUserWithFireworks';
 import SpinnerOverlay from '../components/SpinnerOverlay';
 import AwardRoundDialog from '../components/AwardRoundDialog';
+import DrawReplay from '../components/DrawReplay';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/ui/Toast';
 import { PageLoader } from '../components/ui/Primitives';
@@ -28,6 +31,7 @@ const HomeManagement = () => {
     const [pendingResult, setPendingResult] = useState(null);
     const [activeCommitteeName, setActiveCommitteeName] = useState('');
     const [awarding, setAwarding] = useState(null);
+    const [replay, setReplay] = useState(null);
 
     const socketRef = useRef(null);
     const { token, isAuthenticated } = useAuth();
@@ -125,6 +129,15 @@ const HomeManagement = () => {
         }
     };
 
+    // Tapping a past round in the winners rail replays that draw's wheel.
+    const handleReplayDraw = async (record) => {
+        try {
+            setReplay(await fetchDrawReplay(record._id));
+        } catch (error) {
+            toast.error(errorMessage(error, 'That draw cannot be replayed.'));
+        }
+    };
+
     const handleDeleteDraw = async (drawId) => {
         try {
             await deleteDraw(drawId);
@@ -164,11 +177,13 @@ const HomeManagement = () => {
                 onConfirm={handleAwardRound}
                 onCancel={() => setAwarding(null)}
             />
+            <DrawReplay replay={replay} onClose={() => setReplay(null)} />
             <Dashboard
                 committees={dashboardData.committees || []}
                 drawRecords={drawRecords}
                 onDrawUser={handleDrawUser}
                 onAwardRound={setAwarding}
+                onReplayDraw={handleReplayDraw}
                 onDrawRecordDelete={handleDeleteDraw}
                 isDrawing={isDrawing}
             />

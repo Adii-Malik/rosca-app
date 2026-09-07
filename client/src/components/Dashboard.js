@@ -5,11 +5,6 @@ import { Avatar, ConfirmDialog, EmptyState, Spinner, StatTile } from './ui/Primi
 
 const pad = (n) => String(n).padStart(2, '0');
 
-/**
- * Time left until `target`. The countdown used to be computed in the browser
- * against a hardcoded 15:00, which meant it pointed at a moment nothing acted
- * on. The server now supplies the instant it will actually draw.
- */
 const timeUntil = (target) => {
     const diff = Math.max(new Date(target) - Date.now(), 0);
     return {
@@ -17,16 +12,47 @@ const timeUntil = (target) => {
         hours: Math.floor((diff % 86400000) / 3600000),
         minutes: Math.floor((diff % 3600000) / 60000),
         seconds: Math.floor((diff % 60000) / 1000),
-        elapsed: diff === 0,
     };
 };
 
-const progressPercent = (startDate, endDate) => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const total = end - start;
-    if (!(total > 0)) return 0;
-    return Math.min(Math.max(((Date.now() - start) / total) * 100, 0), 100);
+const ordinal = (n) => {
+    const d = Number(n);
+    if (d % 10 === 1 && d !== 11) return 'st';
+    if (d % 10 === 2 && d !== 12) return 'nd';
+    if (d % 10 === 3 && d !== 13) return 'rd';
+    return 'th';
+};
+
+/** e.g. "5th at 15:00" — the committee's own configured schedule. */
+const scheduleLabel = (committee) =>
+    `${committee.withdrawDay}${ordinal(committee.withdrawDay)} at ` +
+    `${pad(committee.withdrawHour ?? 15)}:${pad(committee.withdrawMinute ?? 0)}`;
+
+/** Which round of the term this month is, and how many are left. */
+const termPosition = (committee) => {
+    const total = committee.duration || 0;
+    if (!total) return null;
+
+    if (!committee.hasStarted) return { current: 0, total, remaining: total };
+
+    const start = new Date(committee.startDate);
+    const now = new Date();
+    const elapsed =
+        (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+    const current = Math.min(Math.max(elapsed + 1, 1), total);
+    return { current, total, remaining: Math.max(total - current, 0) };
+};
+
+/** Short month label from a period key like "2025-11", for the winners rail. */
+const monthShort = (periodKey, fallbackDate) => {
+    if (periodKey) {
+        const [year, month] = periodKey.split('-').map(Number);
+        return new Date(year, month - 1, 1).toLocaleDateString('en-GB', {
+            month: 'short',
+            year: '2-digit',
+        });
+    }
+    return new Date(fallbackDate).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
 };
 
 const Countdown = ({ nextDrawAt }) => {
@@ -38,42 +64,73 @@ const Countdown = ({ nextDrawAt }) => {
         return () => clearInterval(id);
     }, [nextDrawAt]);
 
-    // One line on a phone; the four boxes were a lot of height for something
-    // secondary to what people actually open the page for.
     return (
-        <p className="font-mono tabular-nums text-ink-900">
-            <span className="text-lg font-bold">{time.days}</span>
-            <span className="text-xs text-ink-500 mr-2">d</span>
-            <span className="text-lg font-bold">{pad(time.hours)}</span>
-            <span className="text-xs text-ink-500 mr-2">h</span>
-            <span className="text-lg font-bold">{pad(time.minutes)}</span>
-            <span className="text-xs text-ink-500 mr-2">m</span>
-            <span className="text-lg font-bold">{pad(time.seconds)}</span>
-            <span className="text-xs text-ink-500">s</span>
-        </p>
+        <span className="font-mono tabular-nums">
+            {time.days}d {pad(time.hours)}h {pad(time.minutes)}m {pad(time.seconds)}s
+        </span>
     );
 };
 
-/** e.g. "10th at 15:00" — the committee's own configured schedule. */
-const scheduleLabel = (committee) => {
-    const day = committee.withdrawDay;
-    const suffix = day % 10 === 1 && day !== 11 ? 'st'
-        : day % 10 === 2 && day !== 12 ? 'nd'
-        : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
-    const hour = String(committee.withdrawHour ?? 15).padStart(2, '0');
-    const minute = String(committee.withdrawMinute ?? 0).padStart(2, '0');
-    return `${day}${suffix} at ${hour}:${minute}`;
+/**
+ * The term as one block per round: filled where a round has been played, ringed
+ * on the current one.
+ *
+ * Deliberately discrete where the contributions bar below is continuous — two
+ * identical-looking bars meaning different things (term elapsed vs money
+ * collected) read as a confusing pair.
+ */
+const TermSegments = ({ committee }) => {
+    const term = termPosition(committee);
+    if (!term) return null;
+
+    const played = committee.roundsPlayed || 0;
+
+    return (
+        <div className="mt-3">
+            <div className="flex gap-[3px]" role="img" aria-label={`Round ${term.current} of ${term.total}`}>
+                {Array.from({ length: term.total }, (_, i) => {
+                    const index = i + 1;
+                    const done = index <= played;
+                    const now = index === term.current && !done;
+                    return (
+                        <span
+                            key={index}
+                            className={`flex-1 h-[7px] rounded-[3px] ${
+                                done
+                                    ? 'bg-brand-700'
+                                    : now
+                                        ? 'bg-brand-500 ring-2 ring-brand-100'
+                                        : 'bg-ink-200'
+                            }`}
+                        />
+                    );
+                })}
+            </div>
+            <div className="flex items-center justify-between gap-2 mt-1.5">
+                <span className="text-[11px] text-ink-500">
+                    {term.current === 0
+                        ? `Starts ${formatMonth(committee.startDate)}`
+                        : `Round ${term.current} of ${term.total}`}
+                </span>
+                <span className="text-[11px] text-ink-500">
+                    {term.remaining === 0
+                        ? 'final round'
+                        : `${term.remaining} month${term.remaining === 1 ? '' : 's'} remaining`}
+                </span>
+            </div>
+        </div>
+    );
 };
 
 const ParticipantRow = ({ participant }) => {
     const name = participant.user?.name || 'Unknown member';
-    const { paidAmount = 0, contributionAmount = 0, isSettled, hasPaidPartially } = participant;
+    const { outstandingAmount = 0, contributionAmount = 0, isSettled, hasPaidPartially } = participant;
 
     const status = isSettled
         ? { label: 'Paid', text: 'text-emerald-700', dot: 'bg-emerald-500' }
         : hasPaidPartially
             ? { label: 'Part paid', text: 'text-amber-700', dot: 'bg-amber-500' }
-            : { label: 'Pending', text: 'text-ink-500', dot: 'bg-ink-300' };
+            : { label: 'Not paid', text: 'text-ink-500', dot: 'bg-ink-300' };
 
     return (
         <li className="flex items-center justify-between gap-2.5 py-2.5">
@@ -81,8 +138,6 @@ const ParticipantRow = ({ participant }) => {
                 <Avatar name={initials(name)} tint={avatarTint(name)} size="w-8 h-8 text-[11px]" />
                 <div className="min-w-0">
                     <p className="text-sm font-medium text-ink-900 truncate leading-tight">{name}</p>
-                    {/* Status reads as text with a dot rather than a pill: the pill
-                        wrapped under the amount and got clipped on a phone. */}
                     <p className="text-xs text-ink-500 flex items-center gap-1.5 mt-0.5">
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${status.dot}`} />
                         <span className={status.text}>{status.label}</span>
@@ -92,244 +147,261 @@ const ParticipantRow = ({ participant }) => {
                     </p>
                 </div>
             </div>
-            <div className="text-right shrink-0">
-                <p className="text-sm font-semibold text-ink-900 leading-tight">
-                    {formatCurrency(paidAmount)}
-                </p>
-                <p className="text-xs text-ink-400 mt-0.5">of {formatCurrency(contributionAmount)}</p>
-            </div>
+            {/* What is left to pay, not what was paid: the outstanding figure is
+                the one that prompts action. */}
+            <p className="text-sm text-ink-500 shrink-0 tabular-nums">
+                {isSettled ? formatCurrency(contributionAmount) : `${formatCurrency(outstandingAmount)} left`}
+            </p>
         </li>
     );
 };
 
-const CommitteeCard = ({ committee, drawRecords, onDrawUser, onAwardRound, onRequestDelete, isDrawing, isAuthenticated }) => {
+const Panel = ({ label, aside, children }) => (
+    <div className="p-4 sm:p-5 border-t border-ink-100">
+        <div className="flex items-center justify-between gap-2 mb-2">
+            <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-400">{label}</h3>
+            {aside}
+        </div>
+        {children}
+    </div>
+);
+
+const CommitteeCard = ({
+    committee, drawRecords, onDrawUser, onAwardRound, onRequestDelete, onReplayDraw,
+    isDrawing, isAuthenticated,
+}) => {
+    const [showAllMembers, setShowAllMembers] = useState(false);
+
     const participants = committee.participants || [];
-    const totalMembers = participants.length;
-    const settledCount = participants.filter((p) => p.isSettled).length;
+    const settled = participants.filter((p) => p.isSettled).length;
+    const unpaid = participants.filter((p) => !p.isSettled);
     const collected = committee.collectedAmount || 0;
     const due = participants.reduce((sum, p) => sum + (p.contributionAmount || 0), 0);
+    const percent = due ? Math.min((collected / due) * 100, 100) : 0;
 
     const history = useMemo(
         () =>
             [...drawRecords]
-                .filter((record) => String(record.committeeId) === String(committee._id))
-                .sort((a, b) => new Date(b.date) - new Date(a.date)),
+                .filter((r) => String(r.committeeId) === String(committee._id))
+                .sort((a, b) => (a.roundNumber || 0) - (b.roundNumber || 0)),
         [drawRecords, committee._id]
     );
 
-    // The server decides this; deriving it in the browser drifts across timezones.
-    const alreadyDrawnThisMonth = committee.drawnThisPeriod;
+    const term = termPosition(committee);
+    const totalRounds = term?.total || history.length;
+    const alreadyDrawn = committee.drawnThisPeriod;
+
+    // Unpaid first, since chasing them is the recurring job.
+    const ordered = useMemo(
+        () => [...participants].sort((a, b) => Number(a.isSettled) - Number(b.isSettled)),
+        [participants]
+    );
+    const visibleMembers = showAllMembers ? ordered : ordered.slice(0, 3);
 
     return (
-        <section className="card overflow-hidden">
-            <div className="p-4 sm:p-6 border-b border-ink-100">
-                <div className="flex flex-wrap items-start justify-between gap-3">
+        <section className="card overflow-hidden h-full flex flex-col">
+            {/* Term */}
+            <div className="p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                        <h2 className="text-lg font-bold text-ink-900 truncate">{committee.name}</h2>
-                        <p className="text-sm text-ink-500 mt-0.5">
-                            {formatDate(committee.startDate)} – {formatDate(committee.endDate)}
+                        <h2 className="text-[15px] sm:text-base font-bold text-ink-900 truncate">
+                            {committee.name}
+                        </h2>
+                        <p className="text-[11px] text-ink-500 mt-0.5">
+                            {formatDate(committee.startDate)} → {formatDate(committee.endDate)}
                         </p>
                     </div>
-                    <span className="badge bg-brand-50 text-brand-700">
-                        {committee.monthsRemaining} month{committee.monthsRemaining === 1 ? '' : 's'} left
+                    <span className="badge bg-brand-50 text-brand-700 shrink-0">
+                        {term ? `${term.remaining} left` : `${committee.monthsRemaining} left`}
                     </span>
                 </div>
-
-                <div className="mt-4">
-                    <div className="flex justify-between text-xs text-ink-500 mb-1.5">
-                        <span>Term progress</span>
-                        <span>{Math.round(progressPercent(committee.startDate, committee.endDate))}%</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-ink-100 overflow-hidden">
-                        <div
-                            className="h-full rounded-full bg-brand-600 transition-all duration-500"
-                            style={{ width: `${progressPercent(committee.startDate, committee.endDate)}%` }}
-                        />
-                    </div>
-                </div>
+                <TermSegments committee={committee} />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-ink-100">
-                {/* Payout & draw */}
-                <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-ink-500">Payout</p>
-                            <p className="text-lg sm:text-xl font-bold text-ink-900 leading-tight">
-                                {formatCurrency(committee.totalPooledAmount)}
-                            </p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-ink-500">Per share</p>
-                            <p className="text-lg sm:text-xl font-bold text-ink-900 leading-tight">
-                                {formatCurrency(committee.monthlyAmount)}
-                            </p>
-                        </div>
-                    </div>
-
-                    <div className="rounded-xl bg-ink-50 border border-ink-100 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                                <p className="text-[11px] uppercase tracking-wide text-ink-500">
-                                    {alreadyDrawnThisMonth ? 'Next draw' : 'Draw in'}
-                                </p>
-                                <Countdown nextDrawAt={committee.nextDrawAt} />
-                            </div>
-                            <div className="text-right shrink-0">
-                                <p className="text-xs font-medium text-ink-700">{scheduleLabel(committee)}</p>
-                                {committee.autoDraw !== false && (
-                                    <p className="text-[11px] text-emerald-700 flex items-center justify-end gap-1 mt-0.5">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                        Automatic
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* A committee created after its own draw day still owes its
-                        first round, but the scheduler will not fire it late. */}
-                    {committee.needsManualDraw && isAuthenticated && (
-                        <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
-                            <p className="text-xs text-amber-900 leading-snug">
-                                This month&apos;s draw date has already passed, so it will not run on its
-                                own. Draw or award it below when you are ready — the next one is automatic.
-                            </p>
-                        </div>
-                    )}
-
-                    {isAuthenticated && (
-                        <div>
-                            <button
-                                onClick={() => onDrawUser(committee._id)}
-                                disabled={isDrawing || alreadyDrawnThisMonth}
-                                className="btn-primary w-full"
-                            >
-                                {isDrawing && <Spinner className="w-4 h-4" />}
-                                {isDrawing
-                                    ? 'Draw in progress…'
-                                    : alreadyDrawnThisMonth
-                                        ? 'Already drawn this month'
-                                        : 'Draw now'}
-                            </button>
-                            {!alreadyDrawnThisMonth && (
-                                <>
-                                    <button
-                                        onClick={() => onAwardRound(committee)}
-                                        disabled={isDrawing}
-                                        className="btn-secondary w-full mt-2"
-                                    >
-                                        Award to a specific member…
-                                    </button>
-                                    <p className="mt-2 text-xs text-ink-500 text-center">
-                                        Draw runs on its own; award is for the collector&apos;s round or
-                                        anything agreed in advance.
-                                    </p>
-                                </>
-                            )}
-                        </div>
-                    )}
-
-                    <div>
-                        <h3 className="text-sm font-semibold text-ink-900 mb-2">Draw history</h3>
-                        {history.length ? (
-                            <ul className="space-y-2">
-                                {history.map((record, index) => {
-                                    const name = record.userId?.name || 'Unknown member';
-                                    return (
-                                        <li
-                                            key={record._id}
-                                            className={`rounded-xl border p-3 flex items-center justify-between gap-3 ${
-                                                index === 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-ink-100'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-3 min-w-0">
-                                                <Avatar name={initials(name)} tint={avatarTint(name)} />
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-medium text-ink-900 truncate">{name}</p>
-                                                    <p className="text-xs text-ink-500">{formatDate(record.date)}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center gap-2 shrink-0">
-                                                {record.trigger === 'assigned' && (
-                                                    <span
-                                                        className="badge bg-ink-100 text-ink-600"
-                                                        title="Given to this member directly, not drawn"
-                                                    >
-                                                        Assigned
-                                                    </span>
-                                                )}
-                                                {index === 0 && (
-                                                    <span className="badge bg-emerald-600 text-white">Latest</span>
-                                                )}
-                                                {isAuthenticated && (
-                                                    <button
-                                                        onClick={() => onRequestDelete(record)}
-                                                        className="text-ink-400 hover:text-red-600 p-1"
-                                                        aria-label={`Delete draw record for ${name}`}
-                                                    >
-                                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                        </svg>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </li>
-                                    );
-                                })}
-                            </ul>
+            {/* This month, then who still owes */}
+            <Panel
+                label={committee.hasStarted ? formatMonth(new Date()) : 'Not started'}
+                aside={
+                    committee.hasStarted ? (
+                        unpaid.length ? (
+                            <span className="badge bg-amber-50 text-amber-700">{unpaid.length} unpaid</span>
                         ) : (
-                            <p className="text-sm text-ink-500">No draws yet.</p>
-                        )}
-                    </div>
+                            <span className="badge bg-emerald-50 text-emerald-700">All paid</span>
+                        )
+                    ) : (
+                        <span className="badge bg-ink-100 text-ink-600">Upcoming</span>
+                    )
+                }
+            >
+                <div className="flex items-end justify-between gap-2">
+                    <p className="text-xl sm:text-2xl font-bold text-ink-900 leading-none tabular-nums">
+                        {formatCurrency(collected)}
+                    </p>
+                    <p className="text-[11px] text-ink-500">of {formatCurrency(due)}</p>
+                </div>
+                <div className="mt-2.5 h-[7px] rounded-full bg-ink-200 overflow-hidden">
+                    <div
+                        className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${percent}%` }}
+                    />
                 </div>
 
-                {/* Contributions */}
-                <div className="p-4 sm:p-6">
-                    <div className="flex items-baseline justify-between gap-3 mb-3">
-                        <h3 className="text-sm font-semibold text-ink-900">
-                            Contributions · {formatMonth(new Date())}
-                        </h3>
-                        <span className="text-xs text-ink-500">{settledCount}/{totalMembers} paid</span>
-                    </div>
+                {participants.length > 0 && (
+                    <>
+                        <ul className="divide-y divide-ink-100 mt-2">
+                            {visibleMembers.map((p) => (
+                                <ParticipantRow key={p._id || p.user?._id} participant={p} />
+                            ))}
+                        </ul>
+                        {ordered.length > 3 && (
+                            <button
+                                onClick={() => setShowAllMembers((v) => !v)}
+                                className="btn-secondary w-full mt-2 text-xs py-2"
+                            >
+                                {showAllMembers
+                                    ? 'Show fewer'
+                                    : `All ${ordered.length} members · ${settled} paid`}
+                            </button>
+                        )}
+                    </>
+                )}
+            </Panel>
 
-                    <div className="mb-4">
-                        <div className="h-2 rounded-full bg-ink-100 overflow-hidden">
-                            <div
-                                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                                style={{ width: `${due ? Math.min((collected / due) * 100, 100) : 0}%` }}
-                            />
-                        </div>
-                        <p className="mt-2 text-xs text-ink-500">
-                            {formatCurrency(collected)} collected of {formatCurrency(due)}
+            {/* Draw */}
+            <Panel
+                label={alreadyDrawn ? 'Next draw' : "This month's draw"}
+                aside={
+                    committee.autoDraw !== false && (
+                        <span className="badge bg-emerald-50 text-emerald-700">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            Automatic
+                        </span>
+                    )
+                }
+            >
+                <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-base font-bold text-ink-900">
+                        {new Date(committee.nextDrawAt).toLocaleDateString('en-GB', {
+                            day: 'numeric',
+                            month: 'short',
+                        })}{' '}
+                        · {pad(committee.withdrawHour ?? 15)}:{pad(committee.withdrawMinute ?? 0)}
+                    </p>
+                    <p className="text-[11px] text-ink-500">
+                        <Countdown nextDrawAt={committee.nextDrawAt} />
+                    </p>
+                </div>
+                <p className="text-[11px] text-ink-500 mt-1">
+                    Winner receives {formatCurrency(committee.totalPooledAmount)}
+                    {!isAuthenticated && ' · watch it live here'}
+                </p>
+
+                {committee.needsManualDraw && isAuthenticated && (
+                    <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
+                        <p className="text-xs text-amber-900 leading-snug">
+                            {scheduleLabel(committee)} has already passed this month, so it will not run
+                            on its own. Draw or award it below — the next one is automatic.
                         </p>
                     </div>
+                )}
 
-                    {totalMembers ? (
-                        <ul className="divide-y divide-ink-100 max-h-96 overflow-y-auto">
-                            {/* Unsettled members first — they are the ones needing action. */}
-                            {[...participants]
-                                .sort((a, b) => Number(a.isSettled) - Number(b.isSettled))
-                                .map((p) => (
-                                    <ParticipantRow key={p._id || p.user?._id} participant={p} />
-                                ))}
-                        </ul>
-                    ) : (
-                        <p className="text-sm text-ink-500">No participants in this committee yet.</p>
-                    )}
+                {isAuthenticated && !alreadyDrawn && (
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                            onClick={() => onDrawUser(committee._id)}
+                            disabled={isDrawing}
+                            className="btn-primary"
+                        >
+                            {isDrawing && <Spinner className="w-4 h-4" />}
+                            {isDrawing ? 'Drawing…' : 'Draw now'}
+                        </button>
+                        <button
+                            onClick={() => onAwardRound(committee)}
+                            disabled={isDrawing}
+                            className="btn-secondary"
+                        >
+                            Award…
+                        </button>
+                    </div>
+                )}
+            </Panel>
+
+            {/* Pool winners */}
+            <Panel
+                label={`Pool winners · ${history.length}`}
+                aside={
+                    history.length === 0 && <span className="text-[11px] text-ink-500">none yet</span>
+                }
+            >
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                    {Array.from({ length: Math.max(totalRounds, history.length) }, (_, i) => {
+                        const roundNumber = i + 1;
+                        const record = history.find((r) => (r.roundNumber || 0) === roundNumber);
+                        const isNow = term && roundNumber === term.current && !record;
+                        const name = record?.userId?.name;
+
+                        return (
+                            <div key={roundNumber} className="shrink-0 w-[52px] text-center">
+                                <p className="text-[9px] font-bold tracking-wide text-ink-400">
+                                    R{roundNumber}
+                                </p>
+                                {record ? (
+                                    <button
+                                        onClick={() => onReplayDraw?.(record)}
+                                        className="mt-1 mx-auto block"
+                                        aria-label={`Replay round ${roundNumber}, won by ${name}`}
+                                    >
+                                        <Avatar
+                                            name={initials(name || '?')}
+                                            tint={avatarTint(name || '')}
+                                            size="w-[34px] h-[34px] text-[11px]"
+                                        />
+                                    </button>
+                                ) : (
+                                    <span
+                                        className={`mt-1 mx-auto grid place-items-center w-[34px] h-[34px] rounded-full text-[11px] ${
+                                            isNow
+                                                ? 'border-2 border-brand-500 bg-brand-50 text-brand-700 font-bold'
+                                                : 'border border-dashed border-ink-200 text-ink-400'
+                                        }`}
+                                    >
+                                        {isNow ? '?' : '·'}
+                                    </span>
+                                )}
+                                <p className="text-[9.5px] text-ink-500 mt-1 truncate">
+                                    {record ? monthShort(record.periodKey, record.date) : ''}
+                                </p>
+                            </div>
+                        );
+                    })}
                 </div>
-            </div>
+
+                {history.length > 0 && (
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-ink-500">Tap a round to replay its draw</p>
+                        {isAuthenticated && (
+                            <button
+                                onClick={() => onRequestDelete(history[history.length - 1])}
+                                className="text-[11px] text-ink-400 hover:text-red-600"
+                            >
+                                Remove latest
+                            </button>
+                        )}
+                    </div>
+                )}
+            </Panel>
         </section>
     );
 };
 
-const Dashboard = ({ committees, drawRecords, onDrawUser, onAwardRound, onDrawRecordDelete, isDrawing }) => {
+const Dashboard = ({
+    committees, drawRecords, onDrawUser, onAwardRound, onDrawRecordDelete, onReplayDraw, isDrawing,
+}) => {
     const { isAuthenticated } = useAuth();
     const [pendingDelete, setPendingDelete] = useState(null);
     const [deleting, setDeleting] = useState(false);
 
     const totals = useMemo(() => {
-        const pooled = committees.reduce((sum, c) => sum + (c.totalPooledAmount || 0), 0);
         const members = new Set();
         let paid = 0;
         let outstanding = 0;
@@ -338,7 +410,7 @@ const Dashboard = ({ committees, drawRecords, onDrawUser, onAwardRound, onDrawRe
             paid += c.collectedAmount || 0;
             outstanding += c.outstandingAmount || 0;
         });
-        return { pooled, members: members.size, paid, outstanding };
+        return { members: members.size, paid, outstanding };
     }, [committees]);
 
     const confirmDelete = async () => {
@@ -349,27 +421,24 @@ const Dashboard = ({ committees, drawRecords, onDrawUser, onAwardRound, onDrawRe
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-5">
             <div>
                 <h1 className="text-xl sm:text-2xl font-bold text-ink-900">Committees</h1>
                 <p className="text-sm text-ink-500 mt-1">{formatMonth(new Date())}</p>
             </div>
 
-            {/* Only the two figures that matter at a glance on a phone; the rest
-                are visible on the committee cards themselves. */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <StatTile
-                    label="Still owed"
-                    value={formatCurrency(totals.outstanding)}
-                    hint={`${formatCurrency(totals.paid)} collected`}
-                />
-                <StatTile label="Pooled per round" value={formatCurrency(totals.pooled)} />
-                <div className="hidden lg:block"><StatTile label="Committees" value={committees.length} /></div>
-                <div className="hidden lg:block"><StatTile label="Members" value={totals.members} /></div>
-            </div>
+            {/* With one committee these only restate the card below it. */}
+            {committees.length > 1 && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    <StatTile label="Committees" value={committees.length} />
+                    <StatTile label="Members" value={totals.members} />
+                    <StatTile label="Collected" value={formatCurrency(totals.paid)} hint="this month" />
+                    <StatTile label="Still owed" value={formatCurrency(totals.outstanding)} />
+                </div>
+            )}
 
             {committees.length ? (
-                <div className="space-y-6">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-stretch">
                     {committees.map((committee) => (
                         <CommitteeCard
                             key={committee._id}
@@ -378,6 +447,7 @@ const Dashboard = ({ committees, drawRecords, onDrawUser, onAwardRound, onDrawRe
                             onDrawUser={onDrawUser}
                             onAwardRound={onAwardRound}
                             onRequestDelete={setPendingDelete}
+                            onReplayDraw={onReplayDraw}
                             isDrawing={isDrawing}
                             isAuthenticated={isAuthenticated}
                         />
@@ -386,16 +456,17 @@ const Dashboard = ({ committees, drawRecords, onDrawUser, onAwardRound, onDrawRe
             ) : (
                 <div className="card">
                     <EmptyState
-                        title="No committees yet"
-                        description="Create a committee to start tracking contributions and running draws."
+                        title="No committees running"
+                        description="Finished committees are in the archive. Create one to start a new round."
                     />
                 </div>
             )}
 
             <ConfirmDialog
                 open={Boolean(pendingDelete)}
-                title="Delete draw record?"
-                description={`This removes the draw for ${pendingDelete?.userId?.name || 'this member'} and makes them eligible again.`}
+                title="Remove this draw record?"
+                description={`This removes the win for ${pendingDelete?.userId?.name || 'this member'} and makes them eligible again.`}
+                confirmLabel="Remove"
                 busy={deleting}
                 onConfirm={confirmDelete}
                 onCancel={() => setPendingDelete(null)}

@@ -100,8 +100,14 @@ exports.getDashboard = async (req, res, next) => {
                 periodKey >= startPeriodKey &&
                 scheduledThisPeriod < new Date(committee.startDate);
 
+            // The segmented term indicator needs to distinguish a committee that
+            // has not begun from one in its first round.
+            const hasStarted = periodKey >= startPeriodKey;
+
             return {
                 ...committee,
+                hasStarted,
+                roundsPlayed: committeeDrawRecords.length,
                 monthsRemaining: monthsRemaining(committee.endDate),
                 // The countdown now refers to the moment the server will actually
                 // draw, rather than a time hardcoded in the browser.
