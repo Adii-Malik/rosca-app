@@ -1,14 +1,17 @@
 import React from 'react';
-import ReactDOM from 'react-dom';
-import './index.css'; // Tailwind CSS file
+import { createRoot } from 'react-dom/client';
+import './index.css';
 import App from './App';
 import AuthProvider from './context/AuthContext';
 
-ReactDOM.render(
-  <React.StrictMode>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
-  </React.StrictMode>,
-  document.getElementById('root')
+// React 18 root API. The legacy ReactDOM.render used before opted the whole app
+// out of concurrent rendering.
+const root = createRoot(document.getElementById('root'));
+
+root.render(
+    <React.StrictMode>
+        <AuthProvider>
+            <App />
+        </AuthProvider>
+    </React.StrictMode>
 );

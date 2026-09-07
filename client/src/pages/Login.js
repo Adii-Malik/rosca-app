@@ -1,68 +1,90 @@
-import React, { useState, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { authenticateUser } from '../services/api';
-import { AuthContext } from '../context/AuthContext';
+import React, { useState } from 'react';
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { errorMessage } from '../services/api';
+import { Spinner } from '../components/ui/Primitives';
 
 const Login = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [submitting, setSubmitting] = useState(false);
     const navigate = useNavigate();
-    const { login } = useContext(AuthContext);
+    const location = useLocation();
+    const { login, isAuthenticated } = useAuth();
+
+    // Send the user back where they were headed before the redirect to /login.
+    const destination = location.state?.from?.pathname || '/';
+
+    if (isAuthenticated) return <Navigate to={destination} replace />;
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-        const encodedCredentials = btoa(`${username}:${password}`);
+        setError('');
+        setSubmitting(true);
         try {
-            const response = await authenticateUser(encodedCredentials);
-            if (response.status === 200) {
-                login(encodedCredentials); // Update global auth state
-                navigate('/'); // Redirect to home/dashboard
-            } else {
-                setError('Invalid credentials');
-            }
+            await login(username, password);
+            navigate(destination, { replace: true });
         } catch (err) {
-            console.error('Error during authentication:', err);
-            setError('An error occurred. Please try again.');
+            setError(errorMessage(err, 'Unable to sign in.'));
+        } finally {
+            setSubmitting(false);
         }
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-            <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-                <h2 className="text-2xl font-bold mb-6 text-center text-blue-600">Login</h2>
-                <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
+            <div className="w-full max-w-sm">
+                <div className="text-center mb-8">
+                    <span className="inline-flex w-12 h-12 rounded-2xl bg-brand-600 text-white items-center justify-center font-bold text-xl">
+                        C
+                    </span>
+                    <h1 className="mt-4 text-2xl font-bold text-ink-900">Welcome back</h1>
+                    <p className="mt-1 text-sm text-ink-500">Sign in to manage committees and draws.</p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="card p-6 space-y-4">
                     <div>
-                        <label className="block text-gray-700 font-medium mb-2">Username:</label>
+                        <label htmlFor="username" className="label">Username</label>
                         <input
+                            id="username"
                             type="text"
+                            autoComplete="username"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring focus:ring-blue-300"
+                            className="input"
                             required
                         />
                     </div>
+
                     <div>
-                        <label className="block text-gray-700 font-medium mb-2">Password:</label>
+                        <label htmlFor="password" className="label">Password</label>
                         <input
+                            id="password"
                             type="password"
+                            autoComplete="current-password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring focus:ring-blue-300"
+                            className="input"
                             required
                         />
                     </div>
+
                     {error && (
-                        <p className="text-red-500 text-sm mt-2">{error}</p>
+                        <div role="alert" className="rounded-xl bg-red-50 border border-red-200 px-3.5 py-2.5">
+                            <p className="text-sm text-red-700">{error}</p>
+                        </div>
                     )}
-                    <button
-                        type="submit"
-                        className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition duration-200"
-                    >
-                        Login
+
+                    <button type="submit" className="btn-primary w-full" disabled={submitting}>
+                        {submitting && <Spinner className="w-4 h-4" />}
+                        {submitting ? 'Signing in…' : 'Sign in'}
                     </button>
                 </form>
+
+                <p className="mt-6 text-center text-xs text-ink-400">
+                    Viewing the dashboard does not require an account.
+                </p>
             </div>
         </div>
     );

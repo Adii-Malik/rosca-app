@@ -1,206 +1,350 @@
-// src/components/CommitteeForm.js
-import React, { useState, useEffect } from 'react';
-import UserSelect from './UserSelect'; // Import the UserSelect component
+import React, { useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../services/api';
+import { formatCurrency, initials, avatarTint, toDateInputValue } from '../utils/format';
+import { useToast } from './ui/Toast';
+import { Avatar, Spinner } from './ui/Primitives';
 
-const CommitteeForm = ({ onCommitteeAdded, onCommitteeUpdated, committee, users }) => {
-    const [name, setName] = useState('');
-    const [description, setDescription] = useState('');
-    const [participants, setParticipants] = useState([]); // Changed to an array
-    const [totalPooledAmount, setTotalPooledAmount] = useState(0);
-    const [duration, setDuration] = useState('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [withdrawDay, setWithdrawDay] = useState('');
-    const [contributionLimits, setContributionLimits] = useState({}); // New state for contribution limits
+const blank = {
+    name: '',
+    totalPooledAmount: '',
+    startDate: '',
+    endDate: '',
+    withdrawDay: 1,
+    withdrawHour: 15,
+    withdrawMinute: 0,
+    timezone: 'Asia/Karachi',
+    autoDraw: true,
+};
 
-    // Populate form fields if a committee is being edited
+// Kept short and regional rather than listing every IANA zone.
+const TIMEZONES = [
+    'Asia/Karachi',
+    'Asia/Dubai',
+    'Asia/Riyadh',
+    'Asia/Kolkata',
+    'Europe/London',
+    'America/New_York',
+];
+
+const ordinal = (n) => {
+    const day = Number(n);
+    if (day % 10 === 1 && day !== 11) return 'st';
+    if (day % 10 === 2 && day !== 12) return 'nd';
+    if (day % 10 === 3 && day !== 13) return 'rd';
+    return 'th';
+};
+
+const CommitteeForm = ({ committee, users, onSubmit, onCancelEdit }) => {
+    const [form, setForm] = useState(blank);
+    const [participants, setParticipants] = useState([]); // [{ userId, contributionLimit }]
+    const [search, setSearch] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const toast = useToast();
+
     useEffect(() => {
         if (committee) {
-            setName(committee.name);
-            setDescription(committee.description);
-            setParticipants(committee.participants.map(participant => participant.user._id)); // Assuming participants are stored as ObjectId
-            setTotalPooledAmount(committee.totalPooledAmount);
-            setDuration(committee.duration);
-            setStartDate(committee.startDate.split('T')[0]); // Format date for input
-            setEndDate(committee.endDate.split('T')[0]); // Format date for input
-            setWithdrawDay(committee.withdrawDay);
-
-            // Set contribution limits based on the committee data
-            const limits = {};
-            committee.participants.forEach(participant => {
-                limits[participant.user._id] = participant.contributionLimit || 1; // Default to 1 if not set
+            setForm({
+                name: committee.name || '',
+                totalPooledAmount: committee.totalPooledAmount ?? '',
+                startDate: toDateInputValue(committee.startDate),
+                endDate: toDateInputValue(committee.endDate),
+                withdrawDay: committee.withdrawDay ?? 1,
+                withdrawHour: committee.withdrawHour ?? 15,
+                withdrawMinute: committee.withdrawMinute ?? 0,
+                timezone: committee.timezone || 'Asia/Karachi',
+                autoDraw: committee.autoDraw !== false,
             });
-            setContributionLimits(limits);
+            setParticipants(
+                (committee.participants || [])
+                    .filter((p) => p.user)
+                    .map((p) => ({
+                        userId: p.user._id,
+                        contributionLimit: p.contributionLimit || 1,
+                    }))
+            );
         } else {
-            setName('');
-            setDescription('');
+            setForm(blank);
             setParticipants([]);
-            setTotalPooledAmount(0);
-            setDuration('');
-            setStartDate('');
-            setEndDate('');
-            setWithdrawDay(1);
-            setContributionLimits({});
         }
+        setSearch('');
     }, [committee]);
 
-    const handleContributionLimitChange = (userId, limit) => {
-        setContributionLimits(prevLimits => ({
-            ...prevLimits,
-            [userId]: limit
-        }));
-    };
+    const setField = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }));
+
+    const selectedIds = useMemo(() => new Set(participants.map((p) => p.userId)), [participants]);
+
+    const available = useMemo(
+        () =>
+            (users || []).filter(
+                (u) => !selectedIds.has(u._id) && u.name.toLowerCase().includes(search.trim().toLowerCase())
+            ),
+        [users, selectedIds, search]
+    );
+
+    const totalShares = participants.reduce((sum, p) => sum + (Number(p.contributionLimit) || 1), 0);
+
+    // Mirrors the server's calculation so the figures are visible before saving.
+    const perShare = totalShares > 0 ? (Number(form.totalPooledAmount) || 0) / totalShares : 0;
+
+    const addParticipant = (userId) =>
+        setParticipants((current) => [...current, { userId, contributionLimit: 1 }]);
+
+    const removeParticipant = (userId) =>
+        setParticipants((current) => current.filter((p) => p.userId !== userId));
+
+    const setLimit = (userId, value) =>
+        setParticipants((current) =>
+            current.map((p) => (p.userId === userId ? { ...p, contributionLimit: value } : p))
+        );
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Prepare the participants data as an array of objects
-        const formattedParticipants = participants.map(userId => ({
-            userId: userId, // User ID
-            contributionLimit: contributionLimits[userId] || 1 // Contribution limit, defaulting to 1
-        }));
-
-        const committeeData = {
-            name,
-            description,
-            participants: formattedParticipants,
-            totalPooledAmount,
-            duration,
-            startDate,
-            endDate,
-            withdrawDay
-        };
-
-        if (committee) {
-            // If a committee is being edited, call the update function
-            await onCommitteeUpdated(committee._id, committeeData);
-        } else {
-            // If it's a new committee, call the add function
-            await onCommitteeAdded(committeeData);
+        if (!participants.length) {
+            toast.error('Add at least one participant.');
+            return;
+        }
+        if (new Date(form.endDate) <= new Date(form.startDate)) {
+            toast.error('The end date must be after the start date.');
+            return;
         }
 
-        // Clear the form
-        setName('');
-        setDescription('');
-        setParticipants([]);
-        setTotalPooledAmount(0);
-        setDuration('');
-        setStartDate('');
-        setEndDate('');
-        setWithdrawDay(1);
-        setContributionLimits({});
+        setSubmitting(true);
+        try {
+            await onSubmit({
+                ...form,
+                totalPooledAmount: Number(form.totalPooledAmount) || 0,
+                withdrawDay: Number(form.withdrawDay) || 1,
+                withdrawHour: Number(form.withdrawHour) || 0,
+                withdrawMinute: Number(form.withdrawMinute) || 0,
+                participants: participants.map((p) => ({
+                    userId: p.userId,
+                    contributionLimit: Number(p.contributionLimit) || 1,
+                })),
+            });
+            if (!committee) {
+                setForm(blank);
+                setParticipants([]);
+            }
+        } catch (error) {
+            toast.error(errorMessage(error, 'Could not save the committee.'));
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    return (
-        <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-lg">
-            <h2 className="text-2xl font-semibold text-center">{committee ? 'Update Committee' : 'Add Committee'}</h2>
+    const nameFor = (userId) => users?.find((u) => u._id === userId)?.name || 'Unknown member';
 
-            {/* Committee Name */}
+    return (
+        <form onSubmit={handleSubmit} className="card p-5 sm:p-6 space-y-6">
+            <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-ink-900">
+                    {committee ? 'Edit committee' : 'New committee'}
+                </h2>
+                {committee && (
+                    <button type="button" className="btn-ghost text-xs" onClick={onCancelEdit}>
+                        Cancel edit
+                    </button>
+                )}
+            </div>
+
             <div>
-                <label className="block text-sm font-medium text-gray-700">Committee Name</label>
+                <label htmlFor="c-name" className="label">Committee name</label>
                 <input
+                    id="c-name"
                     type="text"
-                    placeholder="Enter committee name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="mt-1 block w-full px-4 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g. Monthly Committee 2026"
+                    value={form.name}
+                    onChange={setField('name')}
+                    className="input"
                     required
                 />
             </div>
 
-            {/* User Select (Participants) */}
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Select Participants</label>
-                <UserSelect selectedUsers={participants} setSelectedUsers={setParticipants} />
-            </div>
-
-            {/* Contribution Limits for Selected Participants */}
-            <div>
-                <label className="block text-sm font-medium text-gray-700">Contribution Limits</label>
-                {participants.map(userId => {
-                    const user = users.find(u => u._id === userId); // Find the user by ID
-                    return (
-                        <div key={userId} className="flex items-center space-x-2">
-                            <label htmlFor={`contribution-${userId}`} className="block text-sm font-medium text-gray-700">
-                                {user ? user.name : `User  ID: ${userId}`} {/* Display user name or ID if not found */}
-                            </label>
-                            <input
-                                id={`contribution-${userId}`} // Unique ID for accessibility
-                                type="number"
-                                value={contributionLimits[userId] || 1}
-                                onChange={(e) => handleContributionLimitChange(userId, e.target.value)}
-                                className="mt-1 block w-20 px-2 py-1 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                min="1"
-                                required
-                            />
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/* Grouped Inputs: Total Amount & Duration */}
-            <div className="grid grid-cols-2 gap-4">
-                {/* Total Pooled Amount */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Total Pooled Amount</label>
+                    <label htmlFor="c-amount" className="label">Total payout per round</label>
                     <input
+                        id="c-amount"
                         type="number"
-                        placeholder="Enter total pooled amount"
-                        value={totalPooledAmount}
-                        onChange={(e) => setTotalPooledAmount(e.target.value)}
-                        className="mt-1 block w-full px-4 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        min="0"
+                        placeholder="45000"
+                        value={form.totalPooledAmount}
+                        onChange={setField('totalPooledAmount')}
+                        className="input"
                         required
                     />
                 </div>
-
-                {/* Withdraw Date */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Withdraw Day</label>
+                    <label htmlFor="c-day" className="label">Draw day of month</label>
                     <input
+                        id="c-day"
                         type="number"
-                        value={withdrawDay}
-                        onChange={(e) => setWithdrawDay(e.target.value)}
-                        className="mt-1 block w-full px-4 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                </div>
-            </div>
-
-            {/* Grouped Inputs: Start & End Date */}
-            <div className="grid grid-cols-2 gap-4">
-                {/* Start Date */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Start Date</label>
-                    <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="mt-1 block w-full px-4 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        min="1"
+                        max="31"
+                        value={form.withdrawDay}
+                        onChange={setField('withdrawDay')}
+                        className="input"
                         required
                     />
                 </div>
-
-                {/* End Date */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">End Date</label>
-                    <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="mt-1 block w-full px-4 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        required
-                    />
+                    <label htmlFor="c-start" className="label">Start date</label>
+                    <input id="c-start" type="date" value={form.startDate} onChange={setField('startDate')} className="input" required />
+                </div>
+                <div>
+                    <label htmlFor="c-end" className="label">End date</label>
+                    <input id="c-end" type="date" value={form.endDate} onChange={setField('endDate')} className="input" required />
                 </div>
             </div>
 
-            {/* Submit Button */}
-            <div className="mt-6 text-center">
-                <button
-                    type="submit"
-                    className="bg-blue-500 text-white py-2 px-6 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                    {committee ? 'Update Committee' : 'Add Committee'}
-                </button>
+            {/* The draw runs on the server at this moment, so it happens whether
+                or not anyone has the page open. */}
+            <div className="rounded-xl border border-ink-200 p-4 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <p className="text-sm font-medium text-ink-900">Draw schedule</p>
+                        <p className="text-xs text-ink-500 mt-0.5">
+                            When the winner is picked each month.
+                        </p>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-ink-700 shrink-0">
+                        <input
+                            type="checkbox"
+                            checked={form.autoDraw}
+                            onChange={(e) => setForm((f) => ({ ...f, autoDraw: e.target.checked }))}
+                            className="w-4 h-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500"
+                        />
+                        Automatic
+                    </label>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                        <label htmlFor="c-hour" className="label">Hour</label>
+                        <input
+                            id="c-hour"
+                            type="number"
+                            min="0"
+                            max="23"
+                            value={form.withdrawHour}
+                            onChange={setField('withdrawHour')}
+                            className="input"
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="c-minute" className="label">Minute</label>
+                        <input
+                            id="c-minute"
+                            type="number"
+                            min="0"
+                            max="59"
+                            value={form.withdrawMinute}
+                            onChange={setField('withdrawMinute')}
+                            className="input"
+                        />
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                        <label htmlFor="c-tz" className="label">Timezone</label>
+                        <select id="c-tz" value={form.timezone} onChange={setField('timezone')} className="input">
+                            {TIMEZONES.map((zone) => (
+                                <option key={zone} value={zone}>{zone.split('/')[1].replace('_', ' ')}</option>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+
+                <p className="text-xs text-ink-500">
+                    {form.autoDraw
+                        ? `Draws on the ${form.withdrawDay || 1}${ordinal(form.withdrawDay)} at ${String(form.withdrawHour).padStart(2, '0')}:${String(form.withdrawMinute).padStart(2, '0')} ${form.timezone}.`
+                        : 'Automatic draws are off — an admin must run each draw by hand.'}
+                </p>
             </div>
+
+            {/* Participants */}
+            <div className="space-y-3">
+                <div className="flex items-baseline justify-between gap-3">
+                    <span className="label mb-0">Participants</span>
+                    <span className="text-xs text-ink-500">
+                        {participants.length} selected · {totalShares} share{totalShares === 1 ? '' : 's'}
+                    </span>
+                </div>
+
+                {participants.length > 0 && (
+                    <ul className="rounded-xl border border-ink-200 divide-y divide-ink-100">
+                        {participants.map((p) => (
+                            <li key={p.userId} className="flex items-center gap-3 p-2.5">
+                                <Avatar name={initials(nameFor(p.userId))} tint={avatarTint(nameFor(p.userId))} size="w-8 h-8 text-[11px]" />
+                                <span className="text-sm text-ink-900 flex-1 truncate">{nameFor(p.userId)}</span>
+                                <label className="text-xs text-ink-500 shrink-0" htmlFor={`share-${p.userId}`}>
+                                    Shares
+                                </label>
+                                <input
+                                    id={`share-${p.userId}`}
+                                    type="number"
+                                    min="1"
+                                    value={p.contributionLimit}
+                                    onChange={(e) => setLimit(p.userId, e.target.value)}
+                                    className="input w-16 py-1.5 px-2 text-center shrink-0"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => removeParticipant(p.userId)}
+                                    className="text-ink-400 hover:text-red-600 p-1 shrink-0"
+                                    aria-label={`Remove ${nameFor(p.userId)}`}
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+
+                <input
+                    type="search"
+                    placeholder="Search members to add…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="input"
+                />
+
+                <div className="max-h-44 overflow-y-auto rounded-xl border border-ink-200 divide-y divide-ink-100">
+                    {available.length ? (
+                        available.map((user) => (
+                            <button
+                                key={user._id}
+                                type="button"
+                                onClick={() => addParticipant(user._id)}
+                                className="w-full flex items-center gap-3 p-2.5 hover:bg-ink-50 text-left"
+                            >
+                                <Avatar name={initials(user.name)} tint={avatarTint(user.name)} size="w-8 h-8 text-[11px]" />
+                                <span className="text-sm text-ink-900 flex-1 truncate">{user.name}</span>
+                                <span className="text-xs font-medium text-brand-600 shrink-0">Add</span>
+                            </button>
+                        ))
+                    ) : (
+                        <p className="p-3 text-sm text-ink-500">
+                            {users?.length ? 'No matching members left to add.' : 'No members yet — add some first.'}
+                        </p>
+                    )}
+                </div>
+            </div>
+
+            {totalShares > 0 && Number(form.totalPooledAmount) > 0 && (
+                <div className="rounded-xl bg-brand-50 border border-brand-100 p-4 text-sm">
+                    <p className="text-brand-900">
+                        Each share contributes <strong>{formatCurrency(perShare)}</strong> per month, and the
+                        winner receives <strong>{formatCurrency(form.totalPooledAmount)}</strong>.
+                    </p>
+                </div>
+            )}
+
+            <button type="submit" className="btn-primary w-full" disabled={submitting}>
+                {submitting && <Spinner className="w-4 h-4" />}
+                {committee ? 'Save changes' : 'Create committee'}
+            </button>
         </form>
     );
 };

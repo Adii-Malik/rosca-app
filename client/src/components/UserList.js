@@ -1,34 +1,45 @@
-// src/components/UserList.js
 import React from 'react';
+import { initials, avatarTint, formatDate } from '../utils/format';
+import { Avatar, EmptyState } from './ui/Primitives';
 
-const UserList = ({ users, onUserUpdated, onUserDeleted }) => {
-    if (!Array.isArray(users)) {
-        return <div>No users available</div>;
+const UserList = ({ users, onEdit, onDelete, editingId }) => {
+    if (!Array.isArray(users) || users.length === 0) {
+        return <EmptyState title="No members found" description="Add a member using the form, or adjust your search." />;
     }
 
     return (
-        <div className="mt-4">
-            <h2 className="text-xl font-semibold">User  List</h2>
-            <table className="min-w-full bg-white border border-gray-300 mt-2">
-                <thead>
-                    <tr>
-                        <th className="border px-4 py-2">Name</th>
-                        <th className="border px-4 py-2">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {users.map(user => (
-                        <tr key={user._id}>
-                            <td className="border px-4 py-2">{user.name}</td>
-                            <td className="border px-4 py-2">
-                                <button onClick={() => onUserUpdated(user)} className="bg-yellow-500 text-white p-1 rounded hover:bg-yellow-600">Edit</button>
-                                <button onClick={() => onUserDeleted(user._id)} className="bg-red-500 text-white p-1 rounded hover:bg-red-600 ml-2">Delete</button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
+        <ul className="divide-y divide-ink-100">
+            {users.map((user) => (
+                <li
+                    key={user._id}
+                    className={`flex items-center justify-between gap-3 px-4 py-3 ${
+                        editingId === user._id ? 'bg-brand-50/60' : ''
+                    }`}
+                >
+                    <div className="flex items-center gap-3 min-w-0">
+                        <Avatar name={initials(user.name)} tint={avatarTint(user.name)} />
+                        <div className="min-w-0">
+                            <p className="text-sm font-medium text-ink-900 truncate">{user.name}</p>
+                            {user.createdAt && (
+                                <p className="text-xs text-ink-500">Added {formatDate(user.createdAt)}</p>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => onEdit(user)} className="btn-ghost px-2.5 py-1.5 text-xs">
+                            Edit
+                        </button>
+                        <button
+                            onClick={() => onDelete(user)}
+                            className="btn-ghost px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50"
+                        >
+                            Remove
+                        </button>
+                    </div>
+                </li>
+            ))}
+        </ul>
     );
 };
 

@@ -1,48 +1,63 @@
-// src/components/UserForm.js
-import React, { useState, useEffect } from 'react';
-import { createUser, updateUser } from '../services/api';
+import React, { useEffect, useState } from 'react';
+import { errorMessage } from '../services/api';
+import { useToast } from './ui/Toast';
+import { Spinner } from './ui/Primitives';
 
-const UserForm = ({ onUserAdded, onUserUpdated, user }) => {
+const UserForm = ({ user, onSubmit, onCancelEdit }) => {
     const [name, setName] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const toast = useToast();
 
-    // Populate form fields if a user is being edited
     useEffect(() => {
-        if (user) {
-            setName(user.name);
-        } else {
-            setName('');
-        }
+        setName(user?.name || '');
     }, [user]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        const userData = { name };
+        const trimmed = name.trim();
+        if (!trimmed) return;
 
-        if (user) {
-            // If a user is being edited, call the update function
-            await onUserUpdated(user._id, userData);
-        } else {
-            // If it's a new user, call the add function
-            await onUserAdded(userData);
+        setSubmitting(true);
+        try {
+            await onSubmit({ name: trimmed });
+            setName('');
+        } catch (error) {
+            toast.error(errorMessage(error, 'Could not save that member.'));
+        } finally {
+            setSubmitting(false);
         }
-
-        // Clear the form
-        setName('');
     };
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-4">
-            <input
-                type="text"
-                placeholder="Name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="border p-2 w-full rounded"
-                required
-            />
-            <button type="submit" className="bg-blue-500 text-white p-2 rounded hover:bg-blue-600">
-                {user ? 'Update User' : 'Add User'}
-            </button>
+        <form onSubmit={handleSubmit} className="card p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-ink-900">
+                {user ? 'Edit member' : 'Add a member'}
+            </h2>
+
+            <div>
+                <label htmlFor="member-name" className="label">Full name</label>
+                <input
+                    id="member-name"
+                    type="text"
+                    placeholder="e.g. Ayesha Khan"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="input"
+                    required
+                />
+            </div>
+
+            <div className="flex gap-2">
+                <button type="submit" className="btn-primary flex-1" disabled={submitting || !name.trim()}>
+                    {submitting && <Spinner className="w-4 h-4" />}
+                    {user ? 'Save changes' : 'Add member'}
+                </button>
+                {user && (
+                    <button type="button" className="btn-secondary" onClick={onCancelEdit} disabled={submitting}>
+                        Cancel
+                    </button>
+                )}
+            </div>
         </form>
     );
 };

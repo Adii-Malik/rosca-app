@@ -1,37 +1,82 @@
-import React, { createContext, useState, useEffect } from "react";
+import React, { createContext, useState, useEffect, useCallback, useContext } from 'react';
+import { login as loginRequest, fetchCurrentUser } from '../services/api';
+import { TOKEN_KEY, setUnauthorizedHandler } from '../services/axiosInstance';
 
-export const AuthContext = createContext();
+export const AuthContext = createContext(null);
+
+export const useAuth = () => useContext(AuthContext);
+
+const readToken = () => {
+    try {
+        return sessionStorage.getItem(TOKEN_KEY);
+    } catch {
+        return null;
+    }
+};
 
 const AuthProvider = ({ children }) => {
-    const [isAuthenticated, setIsAuthenticated] = useState(null); // Use null initially to show loading state
+    const [token, setToken] = useState(readToken);
+    const [user, setUser] = useState(null);
+    // null = still determining, true/false = known
+    const [isAuthenticated, setIsAuthenticated] = useState(null);
 
-    useEffect(() => {
-        // Check sessionStorage on mount to verify if user is logged in
-        const authToken = sessionStorage.getItem("auth");
-
-        // Simulate async call or setup before the state is ready
-        setTimeout(() => {
-            setIsAuthenticated(authToken !== null); // Set isAuthenticated only after checking sessionStorage
-        }, 0); // Execute immediately after render
+    const logout = useCallback(() => {
+        try {
+            sessionStorage.removeItem(TOKEN_KEY);
+        } catch {
+            /* storage unavailable */
+        }
+        setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
     }, []);
 
-    const login = (token) => {
-        sessionStorage.setItem("auth", token);
+    // Any 401 from the API tears the session down.
+    useEffect(() => {
+        setUnauthorizedHandler(logout);
+        return () => setUnauthorizedHandler(null);
+    }, [logout]);
+
+    // A stored token is only trusted once the server confirms it is still valid,
+    // rather than assuming "a token exists" means "signed in".
+    useEffect(() => {
+        let cancelled = false;
+
+        if (!token) {
+            setIsAuthenticated(false);
+            return undefined;
+        }
+
+        fetchCurrentUser()
+            .then(({ user: confirmed }) => {
+                if (cancelled) return;
+                setUser(confirmed);
+                setIsAuthenticated(true);
+            })
+            .catch(() => {
+                if (!cancelled) logout();
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [token, logout]);
+
+    const login = useCallback(async (username, password) => {
+        const { token: issued, user: authenticated } = await loginRequest(username, password);
+        try {
+            sessionStorage.setItem(TOKEN_KEY, issued);
+        } catch {
+            /* storage unavailable — session lasts until reload */
+        }
+        setToken(issued);
+        setUser(authenticated);
         setIsAuthenticated(true);
-    };
-
-    const logout = () => {
-        sessionStorage.removeItem("auth");
-        setIsAuthenticated(false);
-    };
-
-    if (isAuthenticated === null) {
-        // Optionally, render a loading spinner while the auth state is being determined
-        return <div>Loading...</div>;
-    }
+        return authenticated;
+    }, []);
 
     return (
-        <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+        <AuthContext.Provider value={{ isAuthenticated, user, token, login, logout }}>
             {children}
         </AuthContext.Provider>
     );

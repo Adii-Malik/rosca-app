@@ -1,5 +1,5 @@
 {
-  "name": "rosco-app",
+  "name": "committee-client",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -7,8 +7,6 @@
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.7.7",
-    "body-parser": "^1.20.3",
-    "cors": "^2.8.5",
     "fireworks-js": "^2.10.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -42,7 +40,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15"
   },
-  "description": "This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).",
+  "description": "Committee — pooled savings tracker (client)",
   "main": "tailwind.config.js",
   "keywords": [],
   "author": "",

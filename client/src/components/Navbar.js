@@ -1,130 +1,112 @@
-import React, { useState, useContext } from "react";
-import { Link } from "react-router-dom";
-import { AuthContext } from "../context/AuthContext";
+import React, { useState } from 'react';
+import { Link, NavLink, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+const LINKS = [
+    { to: '/', label: 'Dashboard', end: true },
+    { to: '/committees', label: 'Committees' },
+    { to: '/contributions', label: 'Contributions' },
+    { to: '/users', label: 'Members' },
+];
+
+// Past committees are readable by anyone, like the dashboard.
+const PUBLIC_LINKS = [{ to: '/archive', label: 'Archive' }];
 
 const Navbar = () => {
-    const { isAuthenticated, logout } = useContext(AuthContext);
+    const { isAuthenticated, user, logout } = useAuth();
     const [menuOpen, setMenuOpen] = useState(false);
+    const location = useLocation();
 
-    const toggleMenu = () => setMenuOpen(!menuOpen);
+    // Guests only ever see the dashboard, so the rest of the nav is hidden.
+    const links = isAuthenticated
+        ? [...LINKS, ...PUBLIC_LINKS]
+        : [...LINKS.slice(0, 1), ...PUBLIC_LINKS];
+
+    const linkClass = ({ isActive }) =>
+        `px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+            isActive ? 'bg-brand-50 text-brand-700' : 'text-ink-600 hover:text-ink-900 hover:bg-ink-100'
+        }`;
 
     return (
-        <nav className="bg-blue-600 shadow-lg fixed w-full z-10">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between h-16">
-                    {/* Logo */}
-                    <div className="flex-shrink-0 flex items-center">
-                        <Link to="/" className="text-xl font-bold text-white">
-                            Committee App
-                        </Link>
+        <header className="sticky top-0 z-40 bg-white/85 backdrop-blur border-b border-ink-100">
+            <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="flex items-center justify-between h-16 gap-4">
+                    <Link to="/" className="flex items-center gap-2.5 shrink-0" onClick={() => setMenuOpen(false)}>
+                        <span className="w-9 h-9 rounded-xl bg-brand-600 text-white flex items-center justify-center font-bold">
+                            C
+                        </span>
+                        <span className="font-bold text-ink-900 hidden sm:block">Committee</span>
+                    </Link>
+
+                    <div className="hidden md:flex items-center gap-1 flex-1">
+                        {links.map((link) => (
+                            <NavLink key={link.to} to={link.to} end={link.end} className={linkClass}>
+                                {link.label}
+                            </NavLink>
+                        ))}
                     </div>
 
-                    {/* Desktop Menu */}
-                    <div className="hidden md:flex items-center space-x-6">
+                    <div className="hidden md:flex items-center gap-3">
                         {isAuthenticated ? (
                             <>
-                                <Link to="/" className="text-white hover:text-gray-200">
-                                    Home
-                                </Link>
-                                <Link to="/users" className="text-white hover:text-gray-200">
-                                    Users
-                                </Link>
-                                <Link to="/committees" className="text-white hover:text-gray-200">
-                                    Committees
-                                </Link>
-                                <Link to="/contributions" className="text-white hover:text-gray-200">
-                                    Contributions
-                                </Link>
-                                <button
-                                    onClick={logout}
-                                    className="text-white bg-red-500 px-4 py-2 rounded-md hover:bg-red-600"
-                                >
-                                    Logout
-                                </button>
+                                <span className="text-sm text-ink-500">
+                                    Signed in as <span className="font-medium text-ink-700">{user?.username}</span>
+                                </span>
+                                <button onClick={logout} className="btn-secondary">Sign out</button>
                             </>
                         ) : (
-                            <Link
-                                to="/login"
-                                className="text-white bg-green-500 px-4 py-2 rounded-md hover:bg-blue-700"
-                            >
-                                Login
-                            </Link>
+                            <Link to="/login" className="btn-primary">Sign in</Link>
                         )}
                     </div>
 
-                    {/* Mobile Menu Button */}
-                    <div className="md:hidden flex items-center">
-                        <button
-                            onClick={toggleMenu}
-                            className="text-white hover:text-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                            <svg
-                                className="h-6 w-6"
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                aria-hidden="true"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth="2"
-                                    d={
-                                        menuOpen
-                                            ? "M6 18L18 6M6 6l12 12"
-                                            : "M4 6h16M4 12h16M4 18h16"
-                                    }
-                                />
-                            </svg>
-                        </button>
-                    </div>
+                    <button
+                        onClick={() => setMenuOpen((open) => !open)}
+                        className="md:hidden btn-ghost p-2"
+                        aria-label="Toggle menu"
+                        aria-expanded={menuOpen}
+                    >
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d={menuOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'}
+                            />
+                        </svg>
+                    </button>
                 </div>
-            </div>
+            </nav>
 
-            {/* Mobile Dropdown Menu */}
             {menuOpen && (
-                <div className="md:hidden bg-blue-600 border-t border-blue-500">
-                    <div className="px-2 pt-2 pb-3 space-y-1">
+                <div className="md:hidden border-t border-ink-100 bg-white px-4 py-3 space-y-1 animate-fade-in">
+                    {links.map((link) => (
+                        <NavLink
+                            key={link.to}
+                            to={link.to}
+                            end={link.end}
+                            onClick={() => setMenuOpen(false)}
+                            className={({ isActive }) =>
+                                `block px-3 py-2.5 rounded-lg text-sm font-medium ${
+                                    isActive ? 'bg-brand-50 text-brand-700' : 'text-ink-700 hover:bg-ink-100'
+                                }`
+                            }
+                        >
+                            {link.label}
+                        </NavLink>
+                    ))}
+                    <div className="pt-2 border-t border-ink-100">
                         {isAuthenticated ? (
-                            <>
-                                <Link
-                                    to="/users"
-                                    className="block text-white hover:bg-blue-700 px-3 py-2 rounded-md"
-                                >
-                                    Users
-                                </Link>
-                                <Link
-                                    to="/committees"
-                                    className="block text-white hover:bg-blue-700 px-3 py-2 rounded-md"
-                                >
-                                    Committees
-                                </Link>
-                                <Link
-                                    to="/contributions"
-                                    className="block text-white hover:bg-blue-700 px-3 py-2 rounded-md"
-                                >
-                                    Contributions
-                                </Link>
-                                <button
-                                    onClick={logout}
-                                    className="block w-full text-white bg-red-500 px-3 py-2 rounded-md hover:bg-red-600"
-                                >
-                                    Logout
-                                </button>
-                            </>
+                            <button onClick={() => { setMenuOpen(false); logout(); }} className="btn-secondary w-full">
+                                Sign out
+                            </button>
                         ) : (
-                            <Link
-                                to="/login"
-                                className="block text-white bg-green-500 px-3 py-2 rounded-md hover:bg-blue-700"
-                            >
-                                Login
+                            <Link to="/login" state={{ from: location }} onClick={() => setMenuOpen(false)} className="btn-primary w-full">
+                                Sign in
                             </Link>
                         )}
                     </div>
                 </div>
             )}
-        </nav>
+        </header>
     );
 };
 

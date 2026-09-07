@@ -1,180 +1,379 @@
-import React, { useState, useEffect } from 'react';
-import { fetchCommittees } from '../services/api';
+import React, { useEffect, useMemo, useState } from 'react';
+import { errorMessage } from '../services/api';
+import { formatCurrency, initials, avatarTint } from '../utils/format';
+import { useToast } from './ui/Toast';
+import { Avatar, Spinner } from './ui/Primitives';
 
-const ContributionForm = ({ onContributionAdded, editingContribution }) => {
-    const [amount, setAmount] = useState('');
-    const [userId, setUserId] = useState('');
+const today = () => new Date().toISOString().split('T')[0];
+
+/** A participant's share of the pool, matching the server's calculation. */
+const shareFor = (committee, userId) => {
+    if (!committee || !userId) return null;
+    const participant = committee.participants?.find((p) => p.user?._id === userId);
+    if (!participant) return null;
+
+    const totalShares = committee.participants.reduce(
+        (sum, p) => sum + (p.contributionLimit || 1),
+        0
+    );
+    if (!totalShares) return 0;
+    return (committee.totalPooledAmount * (participant.contributionLimit || 1)) / totalShares;
+};
+
+const sameMonth = (a, b) =>
+    a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+
+/**
+ * Records contributions for several members at once. Entering a month's payments
+ * one member at a time was the slowest part of using the app, so the default is
+ * a checklist of everyone who still owes.
+ *
+ * Editing an existing contribution stays single-member, since it targets one record.
+ */
+const ContributionForm = ({ committees, contributions, editingContribution, onSubmit, onSubmitBulk, onCancelEdit }) => {
     const [committeeId, setCommitteeId] = useState('');
-    const [date, setDate] = useState(new Date().toISOString().split('T')[0]); // Set default to today's date
-    const [users, setUsers] = useState([]);
-    const [committees, setCommittees] = useState([]);
-    const [selectedCommittee, setSelectedCommittee] = useState(null);
-    const [error, setError] = useState('');
+    const [date, setDate] = useState(today);
+    const [selected, setSelected] = useState({}); // userId -> amount string
+    const [submitting, setSubmitting] = useState(false);
 
-    useEffect(() => {
-        const loadUsersAndCommittees = async () => {
-            try {
-                const committeeList = await fetchCommittees();
-                setCommittees(committeeList);
-            } catch (error) {
-                console.error("Error loading users or committees:", error);
-            }
-        };
-        loadUsersAndCommittees();
-    }, []);
+    // Single-member fields, used only while editing.
+    const [editUserId, setEditUserId] = useState('');
+    const [editAmount, setEditAmount] = useState('');
+
+    const toast = useToast();
+    const isEditing = Boolean(editingContribution);
+
+    // Only committees still running can take new money. A finished one keeps its
+    // records but is not a valid target, and the server rejects it too.
+    const openCommittees = useMemo(
+        () => committees.filter((c) => c.status !== 'completed'),
+        [committees]
+    );
+
+    const selectedCommittee = useMemo(
+        () => committees.find((c) => c._id === committeeId) || null,
+        [committees, committeeId]
+    );
+
+    const rawParticipants = useMemo(
+        () => selectedCommittee?.participants?.filter((p) => p.user) || [],
+        [selectedCommittee]
+    );
+
+    // Who has already paid for the month being entered, so they cannot be
+    // double-recorded and the checklist shows real progress.
+    const paidUserIds = useMemo(() => {
+        if (!committeeId) return new Set();
+        const target = new Date(date);
+        if (Number.isNaN(target.getTime())) return new Set();
+
+        return new Set(
+            (contributions || [])
+                .filter(
+                    (c) =>
+                        c.committeeId?._id === committeeId &&
+                        sameMonth(new Date(c.date), target) &&
+                        c._id !== editingContribution?._id
+                )
+                .map((c) => c.userId?._id)
+                .filter(Boolean)
+        );
+    }, [contributions, committeeId, date, editingContribution]);
+
+    const unpaid = rawParticipants.filter((p) => !paidUserIds.has(p.user._id));
+
+    // Members who still owe come first — they are the ones being recorded, and
+    // burying them under everyone who has already paid defeats the point.
+    const participants = useMemo(
+        () =>
+            [...rawParticipants].sort(
+                (a, b) => Number(paidUserIds.has(a.user._id)) - Number(paidUserIds.has(b.user._id))
+            ),
+        [rawParticipants, paidUserIds]
+    );
 
     useEffect(() => {
         if (editingContribution) {
-            setAmount(editingContribution.amount || '');
-            setUserId(editingContribution.userId?._id || '');
             setCommitteeId(editingContribution.committeeId?._id || '');
-            setDate(editingContribution.date
-                ? new Date(editingContribution.date).toISOString().split('T')[0]
-                : new Date().toISOString().split('T')[0] // Keep today's date if no date is provided
-            );
-            const committee = committees.find(c => c._id === editingContribution.committeeId?._id);
-            setSelectedCommittee(committee);
+            setEditUserId(editingContribution.userId?._id || '');
+            setEditAmount(editingContribution.amount ?? '');
+            setDate(toDateInputValue(editingContribution.date) || today());
+            setSelected({});
         } else {
-            setAmount('');
-            setUserId('');
-            setCommitteeId('');
-            setDate(new Date().toISOString().split('T')[0]); // Reset to today's date if not editing
-            setSelectedCommittee(null);
+            setEditUserId('');
+            setEditAmount('');
+            setSelected({});
         }
-    }, [editingContribution, committees]);
+    }, [editingContribution]);
 
-    const handleCommitteeChange = (e) => {
-        const selectedCommitteeId = e.target.value;
-        const selectedCommittee = committees.find(committee => committee._id === selectedCommitteeId);
+    // Clear the checklist when the committee or month changes, so amounts never
+    // carry over to a different context.
+    useEffect(() => {
+        setSelected({});
+    }, [committeeId, date]);
 
-        if (selectedCommittee) {
-            setSelectedCommittee(selectedCommittee);
-            setCommitteeId(selectedCommitteeId);
-            setAmount('');
-            setUsers(selectedCommittee.participants);
-            calculateAmountForUser(userId, selectedCommittee);
-        }
+    const toggle = (participant) => {
+        const id = participant.user._id;
+        setSelected((current) => {
+            if (id in current) {
+                const { [id]: _removed, ...rest } = current;
+                return rest;
+            }
+            return { ...current, [id]: String(shareFor(selectedCommittee, id) ?? '') };
+        });
     };
 
-    const handleUserChange = (e) => {
-        const selectedUserId = e.target.value;
-        setUserId(selectedUserId);
-
-        if (selectedCommittee) {
-            // Recalculate amount based on the new user selection
-            calculateAmountForUser(selectedUserId, selectedCommittee);
+    const selectAllUnpaid = () => {
+        const next = {};
+        for (const p of unpaid) {
+            next[p.user._id] = String(shareFor(selectedCommittee, p.user._id) ?? '');
         }
+        setSelected(next);
     };
 
-    const calculateAmountForUser = (selectedUserId, committee) => {
-        if (!committee || !selectedUserId) {
-            setAmount('');
-            return;
-        }
-
-        // Check if the selected user is part of the committee
-        const currentUser = committee.participants.find(participant => participant.user._id === selectedUserId);
-        if (!currentUser) {
-            setError('Selected user is not registered in this committee.');
-            setAmount('');
-            return;
-        } else {
-            setError(''); // Clear error if user is part of the committee
-        }
-
-        // Calculate total contribution limit from all participants
-        const totalContributionLimit = committee.participants.reduce((total, participant) => {
-            return total + (participant.contributionLimit || 1);
-        }, 0);
-
-        // Calculate the user's contribution limit
-        const userContributionLimit = currentUser.contributionLimit || 1; // Default to 1 if not found
-
-        // Calculate the amount based on the user's contribution limit
-        const calculatedAmount = totalContributionLimit > 0 ? (committee.totalPooledAmount * userContributionLimit) / totalContributionLimit : 0;
-        setAmount(calculatedAmount); // Set the calculated amount
-    };
+    const selectedIds = Object.keys(selected);
+    const total = selectedIds.reduce((sum, id) => sum + (Number(selected[id]) || 0), 0);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (error) {
-            console.error("Cannot submit: ", error);
-            return; // Prevent submission if there's an error
+        if (isEditing) {
+            setSubmitting(true);
+            try {
+                await onSubmit({
+                    amount: Number(editAmount) || 0,
+                    userId: editUserId,
+                    committeeId,
+                    date,
+                });
+            } catch (error) {
+                toast.error(errorMessage(error, 'Could not save the contribution.'));
+            } finally {
+                setSubmitting(false);
+            }
+            return;
         }
 
-        try {
-            const contributionData = { amount, userId, committeeId, date };
-            await onContributionAdded(contributionData);
+        if (!committeeId) {
+            toast.error('Choose a committee.');
+            return;
+        }
+        if (selectedCommittee?.status === 'completed') {
+            toast.error('That committee has finished; contributions cannot be added to it.');
+            return;
+        }
+        if (!selectedIds.length) {
+            toast.error('Select at least one member.');
+            return;
+        }
 
-            // Reset form after successful submission
-            setAmount('');
-            setUserId('');
-            setCommitteeId('');
-            setDate(new Date().toISOString().split('T')[0]);
-            setSelectedCommittee(null);
-            setError(''); // Clear any errors
-        } catch (err) {
-            // Check for specific error messages from the backend
-            if (err.response && err.response.status === 400) {
-                setError(err.response.data.message || "An error occurred while adding the contribution.");
-            } else {
-                console.error("Error submitting contribution:", err);
-                setError("An unexpected error occurred. Please try again later.");
-            }
+        setSubmitting(true);
+        try {
+            await onSubmitBulk({
+                committeeId,
+                date,
+                entries: selectedIds.map((userId) => ({ userId, amount: Number(selected[userId]) || 0 })),
+            });
+            setSelected({});
+        } catch (error) {
+            toast.error(errorMessage(error, 'Could not record those contributions.'));
+        } finally {
+            setSubmitting(false);
         }
     };
 
     return (
-        <form onSubmit={handleSubmit} className="form-container">
-            {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-5">
-                    {error}
-                </div>
-            )}            <div className="form-group">
-                <label>Amount</label>
-                <input
-                    type="number"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+        <form onSubmit={handleSubmit} className="card p-5 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-ink-900">
+                    {isEditing ? 'Edit contribution' : 'Record contributions'}
+                </h2>
+                {isEditing && (
+                    <button type="button" className="btn-ghost text-xs" onClick={onCancelEdit}>
+                        Cancel
+                    </button>
+                )}
+            </div>
+
+            <div>
+                <label htmlFor="k-committee" className="label">Committee</label>
+                <select
+                    id="k-committee"
+                    value={committeeId}
+                    onChange={(e) => setCommitteeId(e.target.value)}
+                    className="input"
                     required
-                    placeholder="Enter amount"
-                    disabled={!!selectedCommittee} // Disable the amount field if a committee is selected
-                />
-            </div>
-            <div className="form-group">
-                <label>Committee</label>
-                <select value={committeeId} onChange={handleCommitteeChange} required>
-                    <option value="">Select Committee</option>
-                    {committees.map((committee) => (
-                        <option key={committee._id} value={committee._id}>
-                            {committee.name}
-                        </option>
+                >
+                    <option value="">
+                        {openCommittees.length ? 'Select a committee…' : 'No active committees'}
+                    </option>
+                    {openCommittees.map((c) => (
+                        <option key={c._id} value={c._id}>{c.name}</option>
                     ))}
+                    {/* An archived committee stays selectable only while editing
+                        one of its existing records. */}
+                    {isEditing && selectedCommittee?.status === 'completed' && (
+                        <option value={selectedCommittee._id}>{selectedCommittee.name} (closed)</option>
+                    )}
                 </select>
             </div>
-            <div className="form-group">
-                <label>User</label>
-                <select value={userId} onChange={handleUserChange} required>
-                    <option value="">Select User</option>
-                    {users.map((user) => (
-                        <option key={user.user._id} value={user.user._id}>
-                            {user.user.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-            <div className="form-group">
-                <label>Date</label>
+
+            <div>
+                <label htmlFor="k-date" className="label">Date</label>
                 <input
+                    id="k-date"
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
+                    className="input"
                     required
                 />
             </div>
-            <button type="submit" className="btn-primary">
-                {editingContribution ? 'Update Contribution' : 'Add Contribution'}
+
+            {isEditing ? (
+                <>
+                    <div>
+                        <label htmlFor="k-user" className="label">Member</label>
+                        <select
+                            id="k-user"
+                            value={editUserId}
+                            onChange={(e) => setEditUserId(e.target.value)}
+                            className="input"
+                            required
+                        >
+                            {participants.map((p) => (
+                                <option key={p.user._id} value={p.user._id}>{p.user.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="k-amount" className="label">Amount</label>
+                        <input
+                            id="k-amount"
+                            type="number"
+                            min="0"
+                            value={editAmount}
+                            onChange={(e) => setEditAmount(e.target.value)}
+                            className="input"
+                            required
+                        />
+                    </div>
+                </>
+            ) : (
+                <div>
+                    <div className="flex items-baseline justify-between gap-2 mb-2">
+                        <span className="label mb-0">Members</span>
+                        {selectedCommittee && (
+                            <div className="flex items-center gap-2 text-xs">
+                                {unpaid.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={selectAllUnpaid}
+                                        className="font-medium text-brand-600 hover:text-brand-700"
+                                    >
+                                        Select all unpaid ({unpaid.length})
+                                    </button>
+                                )}
+                                {selectedIds.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelected({})}
+                                        className="text-ink-500 hover:text-ink-700"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {!selectedCommittee ? (
+                        <p className="text-sm text-ink-500 rounded-xl border border-ink-200 p-3">
+                            Choose a committee to see its members.
+                        </p>
+                    ) : (
+                        <ul className="rounded-xl border border-ink-200 divide-y divide-ink-100 max-h-80 overflow-y-auto">
+                            {participants.map((p) => {
+                                const id = p.user._id;
+                                const paid = paidUserIds.has(id);
+                                const checked = id in selected;
+                                const share = shareFor(selectedCommittee, id);
+
+                                return (
+                                    <li
+                                        key={id}
+                                        className={`flex items-center gap-3 p-2.5 ${
+                                            paid ? 'opacity-60' : checked ? 'bg-brand-50/60' : ''
+                                        }`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            id={`pick-${id}`}
+                                            checked={checked}
+                                            disabled={paid}
+                                            onChange={() => toggle(p)}
+                                            className="w-4 h-4 rounded border-ink-300 text-brand-600 focus:ring-brand-500 shrink-0 disabled:opacity-50"
+                                        />
+                                        <Avatar
+                                            name={initials(p.user.name)}
+                                            tint={avatarTint(p.user.name)}
+                                            size="w-8 h-8 text-[11px]"
+                                        />
+                                        <label htmlFor={`pick-${id}`} className="flex-1 min-w-0 cursor-pointer">
+                                            <span className="block text-sm text-ink-900 truncate">{p.user.name}</span>
+                                            {p.contributionLimit > 1 && (
+                                                <span className="block text-xs text-ink-500">
+                                                    {p.contributionLimit} shares
+                                                </span>
+                                            )}
+                                        </label>
+
+                                        {paid ? (
+                                            <span className="badge bg-emerald-50 text-emerald-700 shrink-0">Paid</span>
+                                        ) : checked ? (
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={selected[id]}
+                                                onChange={(e) =>
+                                                    setSelected((c) => ({ ...c, [id]: e.target.value }))
+                                                }
+                                                className="input w-24 py-1.5 px-2 text-right shrink-0"
+                                                aria-label={`Amount for ${p.user.name}`}
+                                            />
+                                        ) : (
+                                            <span className="text-xs text-ink-400 shrink-0">
+                                                {formatCurrency(share)}
+                                            </span>
+                                        )}
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+
+                    {selectedIds.length > 0 && (
+                        <div className="mt-3 flex items-center justify-between rounded-xl bg-brand-50 border border-brand-100 px-3.5 py-2.5">
+                            <span className="text-sm text-brand-900">
+                                {selectedIds.length} member{selectedIds.length === 1 ? '' : 's'}
+                            </span>
+                            <span className="text-sm font-semibold text-brand-900">{formatCurrency(total)}</span>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            <button
+                type="submit"
+                className="btn-primary w-full"
+                disabled={submitting || (!isEditing && selectedIds.length === 0)}
+            >
+                {submitting && <Spinner className="w-4 h-4" />}
+                {isEditing
+                    ? 'Save changes'
+                    : selectedIds.length > 1
+                        ? `Record ${selectedIds.length} contributions`
+                        : 'Record contribution'}
             </button>
         </form>
     );

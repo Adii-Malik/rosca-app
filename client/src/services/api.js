@@ -1,160 +1,67 @@
 // src/services/api.js
+// Errors are propagated rather than swallowed, so callers can surface them.
+// Previously every function caught, logged, and returned undefined, which turned
+// a failed request into a confusing blank screen.
+import axiosInstance from './axiosInstance';
 
-import axiosInstance from './axiosInstance'; // Import the axiosInstance
+/** Pulls a human-readable message out of an axios error. */
+export const errorMessage = (error, fallback = 'Something went wrong.') =>
+    error?.response?.data?.message || error?.message || fallback;
 
-// ---- Users API ----
-
-// Fetch all users
-export const fetchUsers = async () => {
-    try {
-        const response = await axiosInstance.get('/users');
-        return response.data;
-    } catch (error) {
-        console.error('Error fetching users:', error);
-    }
+// ---- Auth ----
+export const login = async (username, password) => {
+    const { data } = await axiosInstance.post('/auth/login', { username, password });
+    return data; // { token, user }
 };
 
-// Fetch specific user
-export const fetchUser = async (id) => {
-    try {
-        const response = await axiosInstance.get(`/users/${id}`);
-        return response.data;
-    } catch (error) {
-        console.error('Error fetching user:', error);
-    }
+export const fetchCurrentUser = async () => {
+    const { data } = await axiosInstance.get('/auth/me');
+    return data;
 };
 
-// Create a new user
-export const createUser = async (userData) => {
-    try {
-        const response = await axiosInstance.post('/users', userData);
-        return response.data;
-    } catch (error) {
-        console.error('Error creating user:', error);
-    }
-};
+// ---- Users ----
+export const fetchUsers = async () => (await axiosInstance.get('/users')).data;
+export const fetchUser = async (id) => (await axiosInstance.get(`/users/${id}`)).data;
+export const createUser = async (userData) => (await axiosInstance.post('/users', userData)).data;
+export const updateUser = async (id, userData) => (await axiosInstance.put(`/users/${id}`, userData)).data;
+export const deleteUser = async (id) => (await axiosInstance.delete(`/users/${id}`)).data;
 
-// Update an existing user
-export const updateUser = async (id, userData) => {
-    try {
-        const response = await axiosInstance.put(`/users/${id}`, userData);
-        return response.data;
-    } catch (error) {
-        console.error('Error updating user:', error);
-    }
-};
+// ---- Committees ----
+export const fetchCommittees = async () => (await axiosInstance.get('/committees')).data;
+export const fetchCommittee = async (id) => (await axiosInstance.get(`/committees/${id}`)).data;
+export const createCommittee = async (data) => (await axiosInstance.post('/committees', data)).data;
+export const updateCommittee = async (id, data) => (await axiosInstance.put(`/committees/${id}`, data)).data;
+export const deleteCommittee = async (id) => (await axiosInstance.delete(`/committees/${id}`)).data;
 
-// Delete a user
-export const deleteUser = async (id) => {
-    try {
-        const response = await axiosInstance.delete(`/users/${id}`);
-        return response.data;
-    } catch (error) {
-        console.error('Error deleting user:', error);
-    }
-};
+// ---- Contributions ----
+export const fetchContributions = async (params) =>
+    (await axiosInstance.get('/contributions', { params })).data;
+export const createContribution = async (data) => (await axiosInstance.post('/contributions', data)).data;
+export const updateContribution = async (data) =>
+    (await axiosInstance.put(`/contributions/${data._id}`, data)).data;
+export const deleteContribution = async (id) => (await axiosInstance.delete(`/contributions/${id}`)).data;
 
-// ---- Committees API ----
+// ---- Dashboard ----
+export const fetchDashboard = async () => (await axiosInstance.get('/dashboards')).data;
 
-// Fetch all committees
-export const fetchCommittees = async () => {
-    try {
-        const response = await axiosInstance.get('/committees');
-        return response.data;
-    } catch (error) {
-        console.error('Error fetching committees:', error);
-    }
-};
+// ---- Draws ----
+export const fetchDraws = async () => (await axiosInstance.get('/draws')).data;
+export const createDraw = async (data) => (await axiosInstance.post('/draws', data)).data;
+export const deleteDraw = async (id) => (await axiosInstance.delete(`/draws/${id}`)).data;
 
-// Fetch specific committee
-export const fetchCommittee = async (id) => {
-    try {
-        const response = await axiosInstance.get(`/committees/${id}`);
-        return response.data;
-    } catch (error) {
-        console.error('Error fetching committee:', error);
-    }
-};
+// ---- Archive ----
+export const fetchArchive = async () => (await axiosInstance.get('/archive')).data;
 
-// Create a new committee
-export const createCommittee = async (committeeData) => {
-    try {
-        const response = await axiosInstance.post('/committees', committeeData);
-        return response.data;
-    } catch (error) {
-        console.error('Error creating committee:', error);
-    }
-};
+export const fetchDrawReplay = async (drawId) =>
+    (await axiosInstance.get(`/archive/draws/${drawId}/replay`)).data;
 
-// Update an existing committee
-export const updateCommittee = async (id, committeeData) => {
-    try {
-        const response = await axiosInstance.put(`/committees/${id}`, committeeData);
-        return response.data;
-    } catch (error) {
-        console.error('Error updating committee:', error);
-    }
-};
+export const setCommitteeStatus = async (id, status) =>
+    (await axiosInstance.patch(`/committees/${id}/status`, { status })).data;
 
-// Delete a committee
-export const deleteCommittee = async (id) => {
-    try {
-        const response = await axiosInstance.delete(`/committees/${id}`);
-        return response.data;
-    } catch (error) {
-        console.error('Error deleting committee:', error);
-    }
-};
+/** Records contributions for several members of one committee at once. */
+export const createContributionsBulk = async (payload) =>
+    (await axiosInstance.post('/contributions/bulk', payload)).data;
 
-// Contribution axiosInstance
-export const fetchContributions = async () => {
-    const response = await axiosInstance.get('/contributions');
-    return response.data;
-};
-
-export const createContribution = async (contributionData) => {
-    const response = await axiosInstance.post('/contributions', contributionData);
-    return response.data;
-};
-
-export const updateContribution = async (data) => {
-    const response = await axiosInstance.put(`/contributions/${data._id}`, data); // Adjust the endpoint as necessary
-    return response.data;
-};
-
-export const deleteContribution = async (contributionId) => {
-    const response = await axiosInstance.delete(`/contributions/${contributionId}`);
-    return response.data;
-};
-
-// Dashboard axiosInstance
-export const fetchDashboard = async () => {
-    const response = await axiosInstance.get('/dashboards');
-    return response.data;
-};
-
-// Draw axiosInstance
-export const fetchDraws = async () => {
-    const response = await axiosInstance.get('/draws');
-    return response.data;
-};
-
-export const createDraw = async (drawData) => {
-    const response = await axiosInstance.post('/draws', drawData);
-    return response.data;
-};
-
-export const deleteDraw = async (drawId) => {
-    const response = await axiosInstance.delete(`/draws/${drawId}`);
-    return response.data;
-};
-
-// Authenticate function
-export const authenticateUser = async (creds) => {
-    const response = await axiosInstance.get('/auth/authenticate', {
-        headers: {
-            'Authorization': `Basic ${creds}`,
-        },
-    });
-    return response;
-};
+/** Awards the current round to a chosen member instead of drawing for it. */
+export const awardRound = async (committeeId, userId) =>
+    (await axiosInstance.post('/draws/award', { committeeId, userId })).data;
