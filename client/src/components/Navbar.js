@@ -28,8 +28,8 @@ const Navbar = () => {
         }`;
 
     return (
-        <header className="sticky top-0 z-40 bg-white/85 backdrop-blur border-b border-ink-100">
-            <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-40 bg-white/85 backdrop-blur border-b border-ink-100 safe-top">
+            <nav className="max-w-7xl mx-auto safe-x sm:px-6 lg:px-8">
                 <div className="flex items-center justify-between h-16 gap-4">
                     <Link to="/" className="flex items-center gap-2.5 shrink-0" onClick={() => setMenuOpen(false)}>
                         <span className="w-9 h-9 rounded-xl bg-brand-600 text-white flex items-center justify-center font-bold">

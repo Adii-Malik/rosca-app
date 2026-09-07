@@ -14,12 +14,19 @@
          fallback for anything that will not take an SVG favicon. -->
     <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/favicon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="%PUBLIC_URL%/icon-192.png" />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/icon-192.png" />
+
+    <!-- iOS uses this one for the home screen, and only this one. It is opaque
+         and square on purpose: iOS composites transparency onto black and then
+         applies its own rounded mask, so an icon with its own rounded corners
+         shows black wedges outside them. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/apple-touch-icon.png" />
 
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     <meta name="theme-color" content="#1f47d6" />
 
-    <!-- Installable from the browser: Android reads the manifest, iOS reads these. -->
+    <!-- Added to the home screen it opens without browser chrome: Android reads
+         the manifest, iOS reads these. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Committee" />

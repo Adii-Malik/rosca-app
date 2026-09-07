@@ -10,10 +10,33 @@
   }
   body {
     @apply bg-ink-50 text-ink-900 font-sans;
+    /* Added to the home screen the page has no browser chrome around it, so
+       these are what stop it feeling like a web page: no grey flash behind a
+       tap, no rubber-band scroll past the ends, and no waiting 300ms for a
+       double-tap that cannot zoom anyway. */
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: contain;
+    touch-action: manipulation;
   }
 }
 
 @layer components {
+  /* Standalone on iOS, the page is drawn edge to edge — under the status bar,
+     the home indicator and, in landscape, the notch. env() returns 0 wherever
+     there is nothing to avoid, so these are inert in a normal browser tab. */
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-bottom: calc(2rem + env(safe-area-inset-bottom));
+  }
+  /* Replaces the base px-4 rather than sitting alongside it; Tailwind's
+     responsive px-* utilities still win from `sm` up, where insets are 0. */
+  .safe-x {
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+
   .card {
     @apply bg-white rounded-2xl shadow-card border border-ink-100;
   }
