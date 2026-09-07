@@ -2,84 +2,126 @@
 const Committee = require('../models/Committee');
 const Contribution = require('../models/Contribution');
 const DrawRecord = require('../models/DrawRecord');
+const schedule = require('../lib/schedule');
 
-exports.getDashbaord = async (req, res) => {
+const monthBounds = (date = new Date()) => ({
+    start: new Date(date.getFullYear(), date.getMonth(), 1),
+    end: new Date(date.getFullYear(), date.getMonth() + 1, 1),
+});
+
+/** Whole months between now and `endDate`, floored at zero. */
+const monthsRemaining = (endDate) => {
+    const now = new Date();
+    const end = new Date(endDate);
+    const months = (end.getFullYear() - now.getFullYear()) * 12 + (end.getMonth() - now.getMonth());
+    return Math.max(months, 0);
+};
+
+exports.getDashboard = async (req, res, next) => {
     try {
-        // Fetch all committees that are in progress
-        const committees = await Committee.find().populate('participants.user', 'name');
+        const { start, end } = monthBounds();
 
-        // Get current month
-        const currentMonth = new Date().getMonth();
+        const [committees, contributions, drawRecords] = await Promise.all([
+            // Finished committees move to the archive rather than lingering here.
+            // `$ne: 'completed'` so committees created before the status field
+            // existed still count as active.
+            Committee.find({ status: { $ne: 'completed' } }).populate('participants.user', 'name'),
+            Contribution.find({ date: { $gte: start, $lt: end } }),
+            DrawRecord.find().populate('userId', 'name'),
+        ]);
 
-        // Calculate months remaining for each committee
-        const committeesWithMonthsRemaining = committees.map(committee => {
-            const endDate = new Date(committee.endDate); // Assuming endDate is a field in your committee model
-            const monthsRemaining = (endDate.getFullYear() - new Date().getFullYear()) * 12 + (endDate.getMonth() - currentMonth);
-            return {
-                ...committee.toObject(),
-                monthsRemaining: monthsRemaining >= 0 ? monthsRemaining : 0
-            };
-        });
+        const payload = committees.map((doc) => {
+            const committee = doc.toObject();
 
-        // Fetch contributions for the current month
-        const contributions = await Contribution.find({
-            date: {
-                $gte: new Date(new Date().getFullYear(), currentMonth, 1),
-                $lt: new Date(new Date().getFullYear(), currentMonth + 1, 1) // to include contributions for the whole month
-            }
-        });
-
-        // Fetch draw records for all committees
-        const drawRecords = await DrawRecord.find().populate('userId', 'name');
-
-        // Create a structure to hold committees with their contributors and non-contributors
-        const committeesWithContributors = committeesWithMonthsRemaining.map(committee => {
-            const totalContributionLimit = committee.participants.reduce((total, participant) => {
-                return total + (participant.contributionLimit || 1);
-            }, 0);
-
-            // Enhance participants with contribution info
-            const enhancedParticipants = committee.participants.map((participant) => {
-                const userContributionLimit = participant.contributionLimit || 1;
-                const calculatedAmount = totalContributionLimit > 0
-                    ? (committee.totalPooledAmount * userContributionLimit) / totalContributionLimit
-                    : 0;
-
-                return {
-                    ...participant,
-                    contributionAmount: calculatedAmount,
-                };
-            });
-            // Get contributions related to the current committee
-            const committeeContributions = contributions.filter(contribution => contribution.committeeId.toString() === committee._id.toString());
-
-            // Get contributed user IDs
-            const contributedUserIds = committeeContributions.map(contribution => contribution.userId.toString());
-
-            // Map enhanced participants to contributors and non-contributors
-            const contributedUsers = enhancedParticipants
-                .filter((participant) => contributedUserIds.includes(participant.user._id.toString()));
-
-            const nonContributedUsers = enhancedParticipants
-                .filter((participant) => !contributedUserIds.includes(participant.user._id.toString()));
-
-            // Get draw records related to the current committee
-            const committeeDrawRecords = drawRecords.filter(
-                (draw) => draw.committeeId.toString() === committee._id.toString()
+            const committeeContributions = contributions.filter(
+                (c) => String(c.committeeId) === String(committee._id)
             );
+
+            // Actual amount each member has paid this month. A member may pay in
+            // more than one instalment, so contributions are summed rather than
+            // treated as a yes/no flag.
+            const paidByUser = new Map();
+            for (const contribution of committeeContributions) {
+                const id = String(contribution.userId);
+                paidByUser.set(id, (paidByUser.get(id) || 0) + (contribution.amount || 0));
+            }
+
+            const totalShares = committee.participants.reduce(
+                (sum, p) => sum + (p.contributionLimit || 1),
+                0
+            );
+
+            const participants = committee.participants
+                .filter((p) => p.user)
+                .map((participant) => {
+                    const shares = participant.contributionLimit || 1;
+                    // What this member owes: their share of the monthly pool.
+                    const contributionAmount = totalShares > 0
+                        ? (committee.totalPooledAmount * shares) / totalShares
+                        : 0;
+                    const paidAmount = paidByUser.get(String(participant.user._id)) || 0;
+
+                    return {
+                        ...participant,
+                        contributionAmount,
+                        paidAmount,
+                        outstandingAmount: Math.max(contributionAmount - paidAmount, 0),
+                        // Fully settled only when the full share has been paid.
+                        isSettled: paidAmount >= contributionAmount && contributionAmount > 0,
+                        hasPaidPartially: paidAmount > 0 && paidAmount < contributionAmount,
+                    };
+                });
+
+            const committeeDrawRecords = drawRecords.filter(
+                (draw) => String(draw.committeeId) === String(committee._id)
+            );
+
+            const collectedAmount = participants.reduce((sum, p) => sum + p.paidAmount, 0);
+
+            const periodKey = schedule.periodKeyFor(new Date(), schedule.committeeTimezone(committee));
+            const drawnThisPeriod = committeeDrawRecords.some((draw) =>
+                draw.periodKey ? draw.periodKey === periodKey : new Date(draw.date) >= start
+            );
+
+            // A committee created after its own draw day still owes a round for
+            // its first month, but the scheduler will not fire it retroactively.
+            // Flagging it means the month is run deliberately rather than lost.
+            const scheduledThisPeriod = schedule.scheduledInstantFor(committee);
+            // Compared by month rather than instant: startDate is stored at UTC
+            // midnight, which is 05:00 in Karachi, so an instant comparison would
+            // call the committee "not started" for the first few hours of its
+            // own start day.
+            const startPeriodKey = schedule.periodKeyFor(
+                new Date(committee.startDate),
+                schedule.committeeTimezone(committee)
+            );
+            const needsManualDraw =
+                !drawnThisPeriod &&
+                periodKey >= startPeriodKey &&
+                scheduledThisPeriod < new Date(committee.startDate);
 
             return {
                 ...committee,
-                contributedUsers,
-                nonContributedUsers,
+                monthsRemaining: monthsRemaining(committee.endDate),
+                // The countdown now refers to the moment the server will actually
+                // draw, rather than a time hardcoded in the browser.
+                nextDrawAt: new Date(Date.now() + schedule.msUntilNext(committee)).toISOString(),
+                drawnThisPeriod,
+                needsManualDraw,
+                periodKey,
+                participants,
+                // Anyone who has paid something appears as a contributor, matching
+                // the previous behaviour, but the amounts are now real.
+                contributedUsers: participants.filter((p) => p.paidAmount > 0),
+                nonContributedUsers: participants.filter((p) => p.paidAmount === 0),
+                collectedAmount,
+                outstandingAmount: participants.reduce((sum, p) => sum + p.outstandingAmount, 0),
                 drawRecords: committeeDrawRecords,
             };
         });
 
-        res.status(200).json({
-            committees: committeesWithContributors,
-        });
+        res.status(200).json({ committees: payload });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        next(error);
     }
 };
