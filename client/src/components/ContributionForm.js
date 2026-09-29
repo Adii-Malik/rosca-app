@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { errorMessage } from '../services/api';
-import { formatCurrency, initials, avatarTint } from '../utils/format';
+import { formatCurrency, initials, avatarTint, toDateInputValue } from '../utils/format';
 import { useToast } from './ui/Toast';
 import { Avatar, Spinner } from './ui/Primitives';
 
-const today = () => new Date().toISOString().split('T')[0];
+// Local day, not UTC: after midnight in Karachi that is still yesterday, which
+// can file a contribution under the previous month's round.
+const today = () => toDateInputValue(new Date());
 
 /** A participant's share of the pool, matching the server's calculation. */
 const shareFor = (committee, userId) => {
